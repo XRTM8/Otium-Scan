@@ -121,13 +121,13 @@ jobs:
           EOF
           fi
 
-      - name: Build Android APK
+      - name: Build Android APK (Per-ABI Split for minimal file size)
         shell: bash
         run: |
           set -euo pipefail
           npm run build
-          # Build APK via Tauri Android CLI
-          npx tauri android build --apk
+          # Build APK split per architecture for ultra-lightweight binaries
+          npx tauri android build --apk --split-per-abi
 
       - name: Package Release Assets & Checksums
         shell: bash
@@ -136,12 +136,34 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release
-          # Locate generated APK
-          find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -exec cp {} release/OtiumScan_${VERSION}_universal.apk \; || true
-          
+
+          echo "Searching for generated release APKs..."
+          find src-tauri/gen/android/app/build/outputs/apk -type f -name "*.apk"
+
+          # Distribute lightweight per-architecture APKs (arm64-v8a, armeabi-v7a, x86_64)
+          for apk in $(find src-tauri/gen/android/app/build/outputs/apk -type f -name "*release*.apk"); do
+            filename=$(basename "$apk")
+            echo "Packaging: $apk ($filename)"
+            if [[ "$filename" == *"arm64"* ]]; then
+              cp "$apk" "release/OtiumScan_${VERSION}_arm64-v8a.apk"
+            elif [[ "$filename" == *"arm"* ]] && [[ "$filename" != *"arm64"* ]]; then
+              cp "$apk" "release/OtiumScan_${VERSION}_armeabi-v7a.apk"
+            elif [[ "$filename" == *"x86_64"* ]]; then
+              cp "$apk" "release/OtiumScan_${VERSION}_x86_64.apk"
+            elif [[ "$filename" == *"x86"* ]] && [[ "$filename" != *"x86_64"* ]]; then
+              cp "$apk" "release/OtiumScan_${VERSION}_x86.apk"
+            fi
+          done
+
           cd release
-          if [ -f "OtiumScan_${VERSION}_universal.apk" ]; then
-            sha256sum "OtiumScan_${VERSION}_universal.apk" > SHA256SUMS.txt
+          if ls *.apk 1> /dev/null 2>&1; then
+            sha256sum *.apk > SHA256SUMS.txt
+            echo "Successfully generated APK release assets:"
+            ls -lh *.apk
+          else
+            echo "Warning: No per-architecture APKs matched the pattern, searching all APKs:"
+            find ../src-tauri/gen/android/app/build/outputs/apk -type f -name "*.apk" -exec cp {} ./ \;
+            sha256sum *.apk > SHA256SUMS.txt || true
           fi
 
       - name: Upload APK artifacts
