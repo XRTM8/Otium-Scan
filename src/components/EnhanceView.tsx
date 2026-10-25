@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { FilterType, ScannedPage } from '../core/types';
-import { createPdfFromCanvases, PdfCompressionPreset, PdfPageInput } from '../core/pdf';
+import { createPdfFromCanvases, PdfCompressionPreset, PdfPageFormat, PdfPageInput } from '../core/pdf';
 import { loadPageCanvasFromDisk } from '../core/storage/pageStore';
 import { saveDocumentToLibrary } from '../core/storage/documentLibrary';
 import { dewarpBookCurvature } from '../core/geometry';
 import { performOcr } from '../core/ocr/ocrEngine';
+import { SignatureModal } from './SignatureModal';
 import {
   ArrowLeft,
   Share2,
@@ -20,6 +21,8 @@ import {
   RotateCcw,
   RotateCw,
   Edit3,
+  PenTool,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface EnhanceViewProps {
@@ -48,6 +51,10 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
   const [spinePos, setSpinePos] = useState<number>(0.5);
   const [enableOcr, setEnableOcr] = useState<boolean>(true);
   const [compressionPreset, setCompressionPreset] = useState<PdfCompressionPreset>('balanced');
+  const [pageFormat, setPageFormat] = useState<PdfPageFormat>('a4');
+  const [isSignatureOpen, setIsSignatureOpen] = useState(false);
+  const [signatures, setSignatures] = useState<Record<number, { dataUrl: string; x: number; y: number }>>({});
+  const [toastMsg, setToastMsg] = useState<string>('');
   const [pdfGenerating, setPdfGenerating] = useState(false);
   const [ocrStatus, setOcrStatus] = useState<string>('');
   const [fullResPreviewUrl, setFullResPreviewUrl] = useState<string>('');
@@ -99,6 +106,25 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
       const rawCanvas = await loadPageCanvasFromDisk(page.id);
       const processed = curvature > 0 ? dewarpBookCurvature(rawCanvas, curvature, spinePos) : rawCanvas;
 
+      // Overlay digital signature if present for this page
+      const sig = signatures[i];
+      if (sig) {
+        const sigImg = new Image();
+        sigImg.src = sig.dataUrl;
+        await new Promise((res) => {
+          sigImg.onload = res;
+          sigImg.onerror = res;
+        });
+        const ctx = processed.getContext('2d');
+        if (ctx) {
+          const sigW = Math.round(processed.width * 0.32);
+          const sigH = Math.round((sigImg.naturalHeight / sigImg.naturalWidth) * sigW);
+          const posX = Math.round(sig.x * processed.width);
+          const posY = Math.round(sig.y * processed.height);
+          ctx.drawImage(sigImg, posX, posY, sigW, sigH);
+        }
+      }
+
       let words: import('../core/pdf').OcrWordToken[] = [];
       if (enableOcr) {
         setOcrStatus(`OCR scanning page ${i + 1} of ${pages.length}...`);
@@ -112,7 +138,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     }
 
     setOcrStatus('');
-    return await createPdfFromCanvases(pageInputs, compressionPreset);
+    return await createPdfFromCanvases(pageInputs, compressionPreset, pageFormat);
   };
 
   const handleRotateCurrentPage = async () => {
@@ -266,6 +292,20 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Sign Document */}
+          <button
+            onClick={() => {
+              triggerHaptic(15);
+              setIsSignatureOpen(true);
+            }}
+            className={`p-2.5 rounded-full glass-button transition-colors ${
+              signatures[safeIndex] ? 'text-emerald-400 border-emerald-500/50' : 'text-gray-300 active:text-emerald-400'
+            }`}
+            title="Sign this document"
+          >
+            <PenTool className="w-4 h-4" />
+          </button>
+
           {/* Rotate 90° Clockwise */}
           <button
             onClick={handleRotateCurrentPage}
@@ -314,12 +354,53 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
 
       {/* Main Preview with Carousel Navigation */}
       <div className="relative flex-1 w-full h-full flex items-center justify-center p-4 overflow-hidden">
+        {toastMsg && (
+          <div className="absolute top-4 inset-x-0 flex justify-center z-40 pointer-events-none animate-in fade-in duration-200">
+            <span className="px-4 py-1.5 rounded-full bg-emerald-500 text-black font-semibold text-xs shadow-2xl flex items-center gap-1.5 border border-white/20">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>{toastMsg}</span>
+            </span>
+          </div>
+        )}
+
         <div className="relative max-w-full max-h-[54vh] rounded-xl overflow-hidden shadow-2xl border border-white/10">
           <img
             src={previewSource}
             alt={`Page ${safeIndex + 1}`}
             className="w-full h-full object-contain block pointer-events-none"
           />
+
+          {/* Attached Digital Signature */}
+          {signatures[safeIndex] && (
+            <div
+              style={{
+                left: `${signatures[safeIndex].x * 100}%`,
+                top: `${signatures[safeIndex].y * 100}%`,
+              }}
+              className="absolute z-20 w-32 -translate-x-1/2 -translate-y-1/2 p-1.5 border-2 border-dashed border-emerald-400 bg-emerald-500/10 rounded-xl shadow-2xl flex items-center justify-center group"
+            >
+              <img
+                src={signatures[safeIndex].dataUrl}
+                alt="Signature"
+                className="w-full h-auto object-contain pointer-events-none"
+              />
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  triggerHaptic(10);
+                  setSignatures((prev) => {
+                    const next = { ...prev };
+                    delete next[safeIndex];
+                    return next;
+                  });
+                }}
+                className="absolute -top-2.5 -right-2.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-xs font-bold shadow-md active:scale-90"
+                title="Remove signature"
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
           {pdfGenerating && (
             <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center z-30">
@@ -379,6 +460,39 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
                 {tier === 'compact' ? 'Compact (~1.5MB)' : tier === 'balanced' ? 'Balanced' : 'Full'}
               </button>
             ))}
+          </div>
+
+          {/* Page Format: ISO A4 vs Fit */}
+          <div className="flex items-center gap-1 border-l border-white/10 pl-2">
+            <span className="text-[10px] text-gray-400 font-semibold">Format:</span>
+            <button
+              onClick={() => {
+                triggerHaptic(10);
+                setPageFormat('a4');
+              }}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all ${
+                pageFormat === 'a4'
+                  ? 'bg-emerald-500 text-black font-bold shadow-sm'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+              title="Standard ISO A4 (595x842 pt)"
+            >
+              A4
+            </button>
+            <button
+              onClick={() => {
+                triggerHaptic(10);
+                setPageFormat('fit');
+              }}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all ${
+                pageFormat === 'fit'
+                  ? 'bg-emerald-500 text-black font-bold shadow-sm'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+              title="Fit to Sensor Dimensions"
+            >
+              Fit
+            </button>
           </div>
 
           {/* OCR Toggle */}
@@ -496,6 +610,20 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
               </button>
             );
           })}
+
+          {pages.length > 1 && (
+            <button
+              onClick={() => {
+                triggerHaptic(15);
+                setToastMsg('Applied filter to all pages');
+                setTimeout(() => setToastMsg(''), 2200);
+              }}
+              className="text-[10px] text-emerald-400 font-semibold underline underline-offset-2 ml-1 active:opacity-60"
+              title="Apply current filter to all pages"
+            >
+              Apply to all
+            </button>
+          )}
         </div>
 
         {/* Multi-page Thumbnail Strip */}
@@ -558,6 +686,20 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
           </button>
         </div>
       </div>
+
+      <SignatureModal
+        isOpen={isSignatureOpen}
+        onClose={() => setIsSignatureOpen(false)}
+        onSaveSignature={(sigUrl) => {
+          triggerHaptic(20);
+          setSignatures((prev) => ({
+            ...prev,
+            [safeIndex]: { dataUrl: sigUrl, x: 0.58, y: 0.72 },
+          }));
+          setToastMsg('Signature placed on current page');
+          setTimeout(() => setToastMsg(''), 2200);
+        }}
+      />
     </div>
   );
 };

@@ -11,20 +11,23 @@ interface CropViewProps {
 }
 
 type CornerKey = 'topLeft' | 'topRight' | 'bottomRight' | 'bottomLeft';
+type EdgeKey = 'top' | 'right' | 'bottom' | 'left';
 
 export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCancel }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const [quad, setQuad] = useState<Quad | null>(null);
   const [activeCorner, setActiveCorner] = useState<CornerKey | null>(null);
+  const [activeEdge, setActiveEdge] = useState<EdgeKey | null>(null);
+  const [edgeDragStart, setEdgeDragStart] = useState<{ client: Point; quad: Quad } | null>(null);
   const [pointerPos, setPointerPos] = useState<Point | null>(null);
   const [imageSize, setImageSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   const [rotation, setRotation] = useState<number>(0);
 
-  const triggerHaptic = useCallback(() => {
+  const triggerHaptic = useCallback((duration = 10) => {
     if ('vibrate' in navigator) {
       try {
-        navigator.vibrate(10);
+        navigator.vibrate(duration);
       } catch {}
     }
   }, []);
@@ -45,7 +48,7 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
 
   const handleAutoDetect = () => {
     if (!imageRef.current) return;
-    triggerHaptic();
+    triggerHaptic(15);
     const detected = detectDocumentCorners(imageRef.current);
     setQuad(detected);
   };
@@ -82,50 +85,119 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
     [imageSize]
   );
 
-  const handlePointerDown = (corner: CornerKey, e: React.PointerEvent) => {
+  const handleCornerPointerDown = (corner: CornerKey, e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     setActiveCorner(corner);
+    setActiveEdge(null);
     setPointerPos({ x: e.clientX, y: e.clientY });
-    triggerHaptic();
+    triggerHaptic(15);
+  };
+
+  const handleEdgePointerDown = (edge: EdgeKey, e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!quad) return;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    setActiveEdge(edge);
+    setActiveCorner(null);
+    setEdgeDragStart({ client: { x: e.clientX, y: e.clientY }, quad: { ...quad } });
+    setPointerPos({ x: e.clientX, y: e.clientY });
+    triggerHaptic(15);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!activeCorner || !quad) return;
-    e.preventDefault();
+    if (!quad) return;
 
-    setPointerPos({ x: e.clientX, y: e.clientY });
-    const imgCoord = clientToImageCoords(e.clientX, e.clientY);
+    // Corner dragging with magnetic snapping
+    if (activeCorner) {
+      e.preventDefault();
+      setPointerPos({ x: e.clientX, y: e.clientY });
+      const imgCoord = clientToImageCoords(e.clientX, e.clientY);
 
-    setQuad((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        [activeCorner]: imgCoord,
-      };
-    });
+      // Magnetic Snapping to natural borders (within 22px)
+      const SNAP = 22;
+      if (Math.abs(imgCoord.x - 0) < SNAP) {
+        imgCoord.x = 0;
+        triggerHaptic(8);
+      } else if (Math.abs(imgCoord.x - imageSize.width) < SNAP) {
+        imgCoord.x = imageSize.width;
+        triggerHaptic(8);
+      }
+
+      if (Math.abs(imgCoord.y - 0) < SNAP) {
+        imgCoord.y = 0;
+        triggerHaptic(8);
+      } else if (Math.abs(imgCoord.y - imageSize.height) < SNAP) {
+        imgCoord.y = imageSize.height;
+        triggerHaptic(8);
+      }
+
+      setQuad((prev) => (prev ? { ...prev, [activeCorner]: imgCoord } : prev));
+      return;
+    }
+
+    // Edge Midpoint dragging (translates entire edge segment)
+    if (activeEdge && edgeDragStart && imageRef.current) {
+      e.preventDefault();
+      setPointerPos({ x: e.clientX, y: e.clientY });
+
+      const rect = imageRef.current.getBoundingClientRect();
+      const scaleX = imageSize.width / rect.width;
+      const scaleY = imageSize.height / rect.height;
+
+      const dx = (e.clientX - edgeDragStart.client.x) * scaleX;
+      const dy = (e.clientY - edgeDragStart.client.y) * scaleY;
+      const orig = edgeDragStart.quad;
+
+      const clampPt = (pt: Point, deltaX: number, deltaY: number): Point => ({
+        x: Math.max(0, Math.min(imageSize.width, Math.round(pt.x + deltaX))),
+        y: Math.max(0, Math.min(imageSize.height, Math.round(pt.y + deltaY))),
+      });
+
+      setQuad((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev };
+        if (activeEdge === 'top') {
+          next.topLeft = clampPt(orig.topLeft, dx, dy);
+          next.topRight = clampPt(orig.topRight, dx, dy);
+        } else if (activeEdge === 'right') {
+          next.topRight = clampPt(orig.topRight, dx, dy);
+          next.bottomRight = clampPt(orig.bottomRight, dx, dy);
+        } else if (activeEdge === 'bottom') {
+          next.bottomLeft = clampPt(orig.bottomLeft, dx, dy);
+          next.bottomRight = clampPt(orig.bottomRight, dx, dy);
+        } else if (activeEdge === 'left') {
+          next.topLeft = clampPt(orig.topLeft, dx, dy);
+          next.bottomLeft = clampPt(orig.bottomLeft, dx, dy);
+        }
+        return next;
+      });
+    }
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
-    if (activeCorner) {
+    if (activeCorner || activeEdge) {
       try {
         (e.target as HTMLElement).releasePointerCapture(e.pointerId);
       } catch {}
       setActiveCorner(null);
+      setActiveEdge(null);
+      setEdgeDragStart(null);
       setPointerPos(null);
-      triggerHaptic();
+      triggerHaptic(10);
     }
   };
 
   const handleRotate = () => {
-    triggerHaptic();
+    triggerHaptic(15);
     setRotation((r) => (r + 90) % 360);
   };
 
   const handleApply = () => {
     if (!imageRef.current || !quad) return;
-    triggerHaptic();
+    triggerHaptic(20);
 
     // If rotated, rotate source first onto a temporary canvas
     let srcCanvas: HTMLCanvasElement | HTMLImageElement = imageRef.current;
@@ -148,7 +220,7 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
   };
 
   const handleResetQuad = () => {
-    triggerHaptic();
+    triggerHaptic(15);
     setQuad(getDefaultQuad(imageSize.width, imageSize.height));
   };
 
@@ -160,6 +232,58 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
     const bl = imageToClientCoords(quad.bottomLeft);
     return `${tl.x},${tl.y} ${tr.x},${tr.y} ${br.x},${br.y} ${bl.x},${bl.y}`;
   };
+
+  // Determine active focus coordinate for the 2.5x Magnifying Loupe
+  let loupeTargetPt: Point | null = null;
+  if (quad) {
+    if (activeCorner) {
+      loupeTargetPt = quad[activeCorner];
+    } else if (activeEdge) {
+      if (activeEdge === 'top') {
+        loupeTargetPt = {
+          x: (quad.topLeft.x + quad.topRight.x) / 2,
+          y: (quad.topLeft.y + quad.topRight.y) / 2,
+        };
+      } else if (activeEdge === 'right') {
+        loupeTargetPt = {
+          x: (quad.topRight.x + quad.bottomRight.x) / 2,
+          y: (quad.topRight.y + quad.bottomRight.y) / 2,
+        };
+      } else if (activeEdge === 'bottom') {
+        loupeTargetPt = {
+          x: (quad.bottomLeft.x + quad.bottomRight.x) / 2,
+          y: (quad.bottomLeft.y + quad.bottomRight.y) / 2,
+        };
+      } else if (activeEdge === 'left') {
+        loupeTargetPt = {
+          x: (quad.topLeft.x + quad.bottomLeft.x) / 2,
+          y: (quad.topLeft.y + quad.bottomLeft.y) / 2,
+        };
+      }
+    }
+  }
+
+  // Edge Midpoint positions in Client Coords
+  const edgeMidpoints = quad
+    ? {
+        top: {
+          x: (imageToClientCoords(quad.topLeft).x + imageToClientCoords(quad.topRight).x) / 2,
+          y: (imageToClientCoords(quad.topLeft).y + imageToClientCoords(quad.topRight).y) / 2,
+        },
+        right: {
+          x: (imageToClientCoords(quad.topRight).x + imageToClientCoords(quad.bottomRight).x) / 2,
+          y: (imageToClientCoords(quad.topRight).y + imageToClientCoords(quad.bottomRight).y) / 2,
+        },
+        bottom: {
+          x: (imageToClientCoords(quad.bottomLeft).x + imageToClientCoords(quad.bottomRight).x) / 2,
+          y: (imageToClientCoords(quad.bottomLeft).y + imageToClientCoords(quad.bottomRight).y) / 2,
+        },
+        left: {
+          x: (imageToClientCoords(quad.topLeft).x + imageToClientCoords(quad.bottomLeft).x) / 2,
+          y: (imageToClientCoords(quad.topLeft).y + imageToClientCoords(quad.bottomLeft).y) / 2,
+        },
+      }
+    : null;
 
   return (
     <div
@@ -178,7 +302,7 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
         </button>
 
         <span className="text-sm font-semibold tracking-wide text-gray-200">
-          Document Boundary
+          Precision Boundary
         </span>
 
         <div className="flex items-center gap-2">
@@ -217,63 +341,97 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
           className="max-w-full max-h-[72vh] object-contain rounded-lg shadow-2xl pointer-events-none transition-transform duration-200"
         />
 
-        {/* SVG Quad Overlay */}
+        {/* SVG Quad Overlay with high-contrast boundary */}
         {quad && (
           <svg className="fixed inset-0 w-full h-full pointer-events-none z-20">
             <polygon
               points={renderPolyPoints()}
-              fill="rgba(16, 185, 129, 0.18)"
+              fill="rgba(16, 185, 129, 0.16)"
               stroke="#10B981"
               strokeWidth="2.5"
-              strokeDasharray="4 4"
+              strokeDasharray="5 5"
             />
           </svg>
         )}
 
-        {/* Corner Handles */}
+        {/* 4 Corner Handles */}
         {quad &&
           (['topLeft', 'topRight', 'bottomRight', 'bottomLeft'] as CornerKey[]).map((corner) => {
             const clientPt = imageToClientCoords(quad[corner]);
+            const isTargeted = activeCorner === corner;
             return (
               <div
                 key={corner}
-                onPointerDown={(e) => handlePointerDown(corner, e)}
+                onPointerDown={(e) => handleCornerPointerDown(corner, e)}
                 style={{
                   transform: `translate3d(${clientPt.x}px, ${clientPt.y}px, 0px) translate(-50%, -50%)`,
                 }}
-                className="fixed z-30 w-11 h-11 flex items-center justify-center cursor-pointer touch-none active:scale-125 transition-transform"
+                className={`fixed z-30 w-12 h-12 flex items-center justify-center cursor-pointer touch-none transition-transform ${
+                  isTargeted ? 'scale-125' : 'active:scale-125'
+                }`}
               >
-                <div className="w-5 h-5 rounded-full bg-emerald-400 border-2 border-white shadow-lg flex items-center justify-center">
+                <div className="w-5 h-5 rounded-full bg-emerald-400 border-2 border-white shadow-xl flex items-center justify-center ring-2 ring-black/40">
                   <div className="w-1.5 h-1.5 rounded-full bg-black" />
                 </div>
               </div>
             );
           })}
 
-        {/* Floating Precision Magnifier Loupe */}
-        {activeCorner && pointerPos && quad && (
+        {/* 4 Edge Midpoint Handles (Single-swipe Edge Adjustment) */}
+        {edgeMidpoints &&
+          (['top', 'right', 'bottom', 'left'] as EdgeKey[]).map((edge) => {
+            const pt = edgeMidpoints[edge];
+            const isTargeted = activeEdge === edge;
+            return (
+              <div
+                key={edge}
+                onPointerDown={(e) => handleEdgePointerDown(edge, e)}
+                style={{
+                  transform: `translate3d(${pt.x}px, ${pt.y}px, 0px) translate(-50%, -50%)`,
+                }}
+                className={`fixed z-30 w-10 h-10 flex items-center justify-center cursor-pointer touch-none transition-transform ${
+                  isTargeted ? 'scale-125' : 'active:scale-115'
+                }`}
+                title={`Drag ${edge} edge`}
+              >
+                <div className="w-6 h-3 rounded-full bg-emerald-500 border border-white/90 shadow-lg flex items-center justify-center">
+                  <div className="w-2.5 h-0.5 bg-black/80 rounded-full" />
+                </div>
+              </div>
+            );
+          })}
+
+        {/* Precision Magnifier Loupe (2.5x Zoom Floating Bubble) */}
+        {pointerPos && loupeTargetPt && (
           <div
             style={{
-              left: `${pointerPos.x}px`,
-              top: `${Math.max(60, pointerPos.y - 110)}px`,
+              left: `${Math.max(68, Math.min(window.innerWidth - 68, pointerPos.x))}px`,
+              top: `${pointerPos.y < 170 ? pointerPos.y + 115 : pointerPos.y - 115}px`,
               transform: 'translate(-50%, -50%)',
             }}
-            className="fixed z-40 w-28 h-28 rounded-full border-2 border-emerald-400 overflow-hidden shadow-2xl bg-black pointer-events-none"
+            className="fixed z-50 w-28 h-28 rounded-full border-4 border-emerald-400 overflow-hidden shadow-2xl bg-black pointer-events-none ring-4 ring-black/70 animate-in fade-in zoom-in-95 duration-100"
           >
             <div
               style={{
                 width: '100%',
                 height: '100%',
                 backgroundImage: `url(${imageSrc})`,
-                backgroundSize: `${imageSize.width * 2.2}px ${imageSize.height * 2.2}px`,
-                backgroundPosition: `-${quad[activeCorner].x * 2.2 - 56}px -${quad[activeCorner].y * 2.2 - 56}px`,
+                backgroundSize: `${imageSize.width * 2.5}px ${imageSize.height * 2.5}px`,
+                backgroundPosition: `-${loupeTargetPt.x * 2.5 - 56}px -${loupeTargetPt.y * 2.5 - 56}px`,
                 backgroundRepeat: 'no-repeat',
               }}
             />
+            {/* Center Crosshairs */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="w-full h-0.5 bg-emerald-400/70" />
-              <div className="absolute h-full w-0.5 bg-emerald-400/70" />
-              <div className="absolute w-2 h-2 rounded-full border border-emerald-400" />
+              <div className="w-full h-[1.5px] bg-emerald-400/80 shadow-sm" />
+              <div className="absolute h-full w-[1.5px] bg-emerald-400/80 shadow-sm" />
+              <div className="absolute w-3 h-3 rounded-full border-2 border-emerald-400 bg-emerald-400/20" />
+            </div>
+            {/* Zoom Badge */}
+            <div className="absolute top-1.5 inset-x-0 flex justify-center pointer-events-none">
+              <span className="px-1.5 py-0.2 rounded-full bg-black/80 text-[9px] text-emerald-400 font-bold border border-emerald-500/30">
+                2.5x
+              </span>
             </div>
           </div>
         )}
@@ -282,7 +440,7 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
       {/* Bottom Confirm Bar */}
       <div className="relative z-30 flex items-center justify-between px-8 pt-4 pb-12 glass-panel border-t-0">
         <span className="text-xs text-emerald-400 font-medium">
-          Auto-detected boundaries
+          Drag corners or edges to adjust
         </span>
 
         <button

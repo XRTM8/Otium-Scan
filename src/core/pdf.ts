@@ -12,16 +12,16 @@ export interface PdfPageInput {
 }
 
 export type PdfCompressionPreset = 'compact' | 'balanced' | 'max';
+export type PdfPageFormat = 'a4' | 'fit';
 
 /**
- * Enterprise Searchable PDF 1.4 Compiler with Smart Multi-Tier Compression.
- * Compact mode: ~60KB/page (~1.5MB for 25 pages) for instant WhatsApp/Email sharing.
- * Balanced mode: ~160KB/page (~3.8MB for 25 pages) with sharp text and low file size.
- * Max mode: Uncompressed hardware resolution for print and official archival.
+ * Enterprise Searchable PDF 1.4 Compiler with Smart Multi-Tier Compression
+ * and Standard ISO A4 Page Normalization (595x842 pt).
  */
 export async function createPdfFromCanvases(
   pagesInput: (HTMLCanvasElement | PdfPageInput)[],
-  compressionPreset: PdfCompressionPreset = 'balanced'
+  compressionPreset: PdfCompressionPreset = 'balanced',
+  pageFormat: PdfPageFormat = 'a4'
 ): Promise<Blob> {
   const pages: PdfPageInput[] = pagesInput.map((item) =>
     'canvas' in item ? item : { canvas: item, words: [] }
@@ -103,8 +103,35 @@ export async function createPdfFromCanvases(
     const pageObjIdx = objCounter++;
     const contentObjIdx = objCounter++;
 
-    const ptWidth = Math.round(spec.width * 0.75);
-    const ptHeight = Math.round(spec.height * 0.75);
+    let pagePtWidth: number;
+    let pagePtHeight: number;
+    let drawX: number;
+    let drawY: number;
+    let drawW: number;
+    let drawH: number;
+
+    if (pageFormat === 'a4') {
+      const isPortrait = spec.width <= spec.height;
+      pagePtWidth = isPortrait ? 595 : 842;
+      pagePtHeight = isPortrait ? 842 : 595;
+
+      const margin = 14;
+      const availW = pagePtWidth - margin * 2;
+      const availH = pagePtHeight - margin * 2;
+      const scale = Math.min(availW / spec.width, availH / spec.height);
+
+      drawW = Math.round(spec.width * scale);
+      drawH = Math.round(spec.height * scale);
+      drawX = Math.round((pagePtWidth - drawW) / 2);
+      drawY = Math.round((pagePtHeight - drawH) / 2);
+    } else {
+      pagePtWidth = Math.round(spec.width * 0.75);
+      pagePtHeight = Math.round(spec.height * 0.75);
+      drawX = 0;
+      drawY = 0;
+      drawW = pagePtWidth;
+      drawH = pagePtHeight;
+    }
 
     // Image XObject
     recordOffset(imgObjIdx);
@@ -115,14 +142,14 @@ export async function createPdfFromCanvases(
     writeText('\nendstream\nendobj\n');
 
     // Content Stream: Paint image background + optional invisible OCR text layer
-    let contentStream = `q\n${ptWidth} 0 0 ${ptHeight} 0 0 cm\n/Im0 Do\nQ\n`;
+    let contentStream = `q\n${drawW} 0 0 ${drawH} ${drawX} ${drawY} cm\n/Im0 Do\nQ\n`;
 
     if (spec.words.length > 0) {
       contentStream += 'BT\n/F1 10 Tf\n3 Tr\n';
       for (const w of spec.words) {
         const cleanText = w.text.replace(/[()\\]/g, '\\$&');
-        const wx = Math.round(w.x * ptWidth);
-        const wy = Math.round(ptHeight - w.y * ptHeight - 10);
+        const wx = Math.round(drawX + w.x * drawW);
+        const wy = Math.round(drawY + drawH - w.y * drawH - 10);
         contentStream += `1 0 0 1 ${wx} ${wy} Tm (${cleanText}) Tj\n`;
       }
       contentStream += 'ET\n';
@@ -136,7 +163,7 @@ export async function createPdfFromCanvases(
     // Page Object
     recordOffset(pageObjIdx);
     writeText(
-      `${pageObjIdx} 0 obj\n<< /Type /Page /Parent ${pagesContainerIndex} 0 R /MediaBox [ 0 0 ${ptWidth} ${ptHeight} ] /Contents ${contentObjIdx} 0 R /Resources << /XObject << /Im0 ${imgObjIdx} 0 R >> /Font << /F1 ${fontObjIndex} 0 R >> >> >>\nendobj\n`
+      `${pageObjIdx} 0 obj\n<< /Type /Page /Parent ${pagesContainerIndex} 0 R /MediaBox [ 0 0 ${pagePtWidth} ${pagePtHeight} ] /Contents ${contentObjIdx} 0 R /Resources << /XObject << /Im0 ${imgObjIdx} 0 R >> /Font << /F1 ${fontObjIndex} 0 R >> >> >>\nendobj\n`
     );
   }
 

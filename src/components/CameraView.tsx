@@ -31,7 +31,27 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const [scanMode, setScanMode] = useState<'single' | 'batch'>('batch'); // default to fast batch
   const [capturing, setCapturing] = useState(false);
   const [flashAnimation, setFlashAnimation] = useState(false);
+  const [tilt, setTilt] = useState<{ x: number; y: number; isLevel: boolean }>({
+    x: 0,
+    y: 0,
+    isLevel: false,
+  });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      if (e.beta === null || e.gamma === null) return;
+      const roll = Math.max(-20, Math.min(20, e.gamma));
+      const rawPitch = e.beta > 90 ? e.beta - 180 : e.beta;
+      const pitch = Math.max(-20, Math.min(20, rawPitch));
+
+      const isLevel = Math.abs(roll) < 3.5 && Math.abs(pitch) < 3.5;
+      setTilt({ x: roll, y: pitch, isLevel });
+    };
+
+    window.addEventListener('deviceorientation', handleOrientation);
+    return () => window.removeEventListener('deviceorientation', handleOrientation);
+  }, []);
 
   useEffect(() => {
     let currentStream: MediaStream | null = null;
@@ -257,11 +277,38 @@ export const CameraView: React.FC<CameraViewProps> = ({
           <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-emerald-400 rounded-bl-lg" />
           <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-emerald-400 rounded-br-lg" />
 
+          {/* Gyroscope Spirit Level Bubble */}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div
+              className={`relative w-12 h-12 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ${
+                tilt.isLevel
+                  ? 'border-emerald-400 bg-emerald-500/20 shadow-xl'
+                  : 'border-white/20 bg-black/25'
+              }`}
+            >
+              <div
+                style={{
+                  transform: `translate3d(${tilt.x * 1.6}px, ${tilt.y * 1.6}px, 0)`,
+                }}
+                className={`w-3.5 h-3.5 rounded-full transition-transform duration-75 ${
+                  tilt.isLevel
+                    ? 'bg-emerald-400 scale-125 shadow-md shadow-emerald-400/80'
+                    : 'bg-white/60'
+                }`}
+              />
+              <div className="absolute w-2 h-2 rounded-full border border-white/30" />
+            </div>
+          </div>
+
           <div className="absolute bottom-4 inset-x-0 text-center">
             <span className="text-xs bg-black/60 backdrop-blur-md px-3.5 py-1.5 rounded-full text-gray-200 border border-white/10">
-              {scanMode === 'batch'
-                ? `Rapid Batch Mode — ${pagesCount} captured`
-                : 'Single Document Alignment'}
+              {tilt.isLevel ? (
+                <span className="text-emerald-400 font-semibold">Perfect Alignment (Level)</span>
+              ) : scanMode === 'batch' ? (
+                `Rapid Batch Mode — ${pagesCount} captured`
+              ) : (
+                'Align document inside frame'
+              )}
             </span>
           </div>
         </div>
