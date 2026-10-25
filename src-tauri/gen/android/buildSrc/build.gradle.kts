@@ -1,3 +1,11 @@
+buildscript {
+    repositories {
+        mavenCentral()
+        google()
+        gradlePluginPortal()
+    }
+}
+
 plugins {
     `kotlin-dsl`
 }
@@ -12,12 +20,11 @@ gradlePlugin {
 }
 
 repositories {
-    google()
     mavenCentral()
+    google()
 }
 
 dependencies {
     compileOnly(gradleApi())
     implementation("com.android.tools.build:gradle:9.3.1")
 }
-
