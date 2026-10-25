@@ -1,8 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Camera, Image as ImageIcon, Zap, ZapOff, CheckCheck, Layers, Sparkles, FolderArchive } from 'lucide-react';
+import {
+  Camera,
+  Image as ImageIcon,
+  Zap,
+  ZapOff,
+  CheckCheck,
+  FolderArchive,
+  ScanLine,
+} from 'lucide-react';
 
 interface CameraViewProps {
-  onCapture: (imageDataUrl: string) => void;
+  onCapture: (imageDataUrl: string, isBatchMode: boolean) => void;
   pagesCount: number;
   lastThumbnail?: string;
   onFinishBatch: () => void;
@@ -20,7 +28,9 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [torchOn, setTorchOn] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  const [scanMode, setScanMode] = useState<'single' | 'batch'>('batch'); // default to fast batch
   const [capturing, setCapturing] = useState(false);
+  const [flashAnimation, setFlashAnimation] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -31,7 +41,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
         const mediaStream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: 'environment' },
-            width: { ideal: 4096 }, // Request 4K/Max sensor dimensions
+            width: { ideal: 4096 },
             height: { ideal: 2160 },
           },
           audio: false,
@@ -59,28 +69,26 @@ export const CameraView: React.FC<CameraViewProps> = ({
     };
   }, []);
 
-  const triggerHaptic = () => {
+  const triggerHaptic = (duration = 25) => {
     if ('vibrate' in navigator) {
       try {
-        navigator.vibrate(25);
+        navigator.vibrate(duration);
       } catch {}
     }
   };
 
-  /**
-   * Captures at full sensor hardware resolution in-app using ImageCapture API
-   * without launching external apps or losing WebView state.
-   */
   const handleCapture = async () => {
     if (capturing) return;
-    triggerHaptic();
+    triggerHaptic(30);
     setCapturing(true);
+
+    // Trigger visual shutter flash
+    setFlashAnimation(true);
+    setTimeout(() => setFlashAnimation(false), 120);
 
     try {
       if (stream) {
         const track = stream.getVideoTracks()[0];
-
-        // Modern Android WebView ImageCapture API (Full 12MP-48MP Sensor capture)
         if ('ImageCapture' in window) {
           try {
             const imageCapture = new (window as any).ImageCapture(track);
@@ -93,18 +101,17 @@ export const CameraView: React.FC<CameraViewProps> = ({
             reader.onload = () => {
               if (typeof reader.result === 'string') {
                 setCapturing(false);
-                onCapture(reader.result);
+                onCapture(reader.result, scanMode === 'batch');
               }
             };
             reader.readAsDataURL(blob);
             return;
-          } catch (e) {
-            console.warn('ImageCapture fallback to video canvas:', e);
+          } catch {
+            // fallback below
           }
         }
       }
 
-      // High-resolution Canvas fallback from live stream
       if (videoRef.current && videoRef.current.videoWidth > 0) {
         const video = videoRef.current;
         const canvas = document.createElement('canvas');
@@ -113,9 +120,9 @@ export const CameraView: React.FC<CameraViewProps> = ({
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.96);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
           setCapturing(false);
-          onCapture(dataUrl);
+          onCapture(dataUrl, scanMode === 'batch');
           return;
         }
       }
@@ -134,7 +141,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
       const reader = new FileReader();
       reader.onload = () => {
         if (typeof reader.result === 'string') {
-          onCapture(reader.result);
+          onCapture(reader.result, false);
         }
       };
       reader.readAsDataURL(file);
@@ -151,7 +158,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
           advanced: [{ torch: !torchOn } as MediaTrackConstraintSet],
         });
         setTorchOn(!torchOn);
-        triggerHaptic();
+        triggerHaptic(15);
       }
     } catch (e) {
       console.warn('Torch unsupported:', e);
@@ -160,13 +167,16 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
   return (
     <div className="relative w-full h-full bg-black flex flex-col justify-between overflow-hidden">
+      {/* Visual Shutter Flash */}
+      {flashAnimation && <div className="absolute inset-0 z-50 bg-white pointer-events-none" />}
+
       {/* Top Header Bar */}
       <div className="relative z-20 flex items-center justify-between px-6 pt-12 pb-4 glass-panel border-b-0">
         <div className="flex items-center gap-2">
           {onOpenLibrary && (
             <button
               onClick={() => {
-                triggerHaptic();
+                triggerHaptic(15);
                 onOpenLibrary();
               }}
               className="p-2 rounded-xl glass-button text-emerald-400 active:scale-90"
@@ -180,26 +190,44 @@ export const CameraView: React.FC<CameraViewProps> = ({
           </span>
         </div>
 
-        {/* Status Indicators & Tools */}
+        {/* Scan Mode Switcher (Single vs Rapid Batch) & Tools */}
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-[11px] font-semibold">
-            <Sparkles className="w-3 h-3" />
-            <span>4K Sensor</span>
+          <div className="flex items-center p-0.5 rounded-full bg-white/10 border border-white/10 text-xs">
+            <button
+              onClick={() => {
+                triggerHaptic(10);
+                setScanMode('single');
+              }}
+              className={`px-2.5 py-1 rounded-full font-medium transition-all ${
+                scanMode === 'single'
+                  ? 'bg-emerald-500 text-black font-semibold shadow-sm'
+                  : 'text-gray-400'
+              }`}
+            >
+              Single
+            </button>
+            <button
+              onClick={() => {
+                triggerHaptic(10);
+                setScanMode('batch');
+              }}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-full font-medium transition-all ${
+                scanMode === 'batch'
+                  ? 'bg-emerald-500 text-black font-semibold shadow-sm'
+                  : 'text-gray-400'
+              }`}
+            >
+              <ScanLine className="w-3 h-3" />
+              <span>Batch</span>
+            </button>
           </div>
-
-          {pagesCount > 0 && (
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
-              <Layers className="w-3.5 h-3.5" />
-              <span>{pagesCount}</span>
-            </div>
-          )}
 
           <button
             onClick={toggleTorch}
-            className="p-2.5 rounded-full glass-button text-gray-300 active:text-emerald-400"
+            className="p-2 rounded-full glass-button text-gray-300 active:text-emerald-400"
             title="Flashlight"
           >
-            {torchOn ? <Zap className="w-5 h-5 text-emerald-400" /> : <ZapOff className="w-5 h-5" />}
+            {torchOn ? <Zap className="w-4 h-4 text-emerald-400" /> : <ZapOff className="w-4 h-4" />}
           </button>
         </div>
       </div>
@@ -231,7 +259,9 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
           <div className="absolute bottom-4 inset-x-0 text-center">
             <span className="text-xs bg-black/60 backdrop-blur-md px-3.5 py-1.5 rounded-full text-gray-200 border border-white/10">
-              Align document inside frame
+              {scanMode === 'batch'
+                ? `Rapid Batch Mode — ${pagesCount} captured`
+                : 'Single Document Alignment'}
             </span>
           </div>
         </div>
@@ -247,7 +277,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
           <ImageIcon className="w-6 h-6 text-gray-200" />
         </button>
 
-        {/* Tactile In-App Shutter Button */}
+        {/* Tactile Shutter Button */}
         <button
           onClick={handleCapture}
           disabled={capturing}
@@ -262,11 +292,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
         {pagesCount > 0 ? (
           <button
             onClick={() => {
-              triggerHaptic();
+              triggerHaptic(20);
               onFinishBatch();
             }}
             className="relative flex items-center justify-center w-12 h-12 rounded-2xl border-2 border-emerald-400 bg-black overflow-hidden active:scale-90 transition-transform shadow-lg"
-            title="Finish & Review"
+            title="Finish & Review Batch"
           >
             {lastThumbnail ? (
               <img src={lastThumbnail} alt="Thumbnail" className="w-full h-full object-cover" />
@@ -282,7 +312,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
         )}
       </div>
 
-      {/* Gallery file picker input */}
       <input
         ref={fileInputRef}
         type="file"

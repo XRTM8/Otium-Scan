@@ -127,7 +127,6 @@ jobs:
           set -euo pipefail
           npm run build
           # Build APK via Tauri Android CLI
-          npx tauri android init || true
           npx tauri android build --apk
 
       - name: Package Release Assets & Checksums

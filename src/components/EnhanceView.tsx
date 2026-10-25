@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { FilterType, ScannedPage } from '../core/types';
-import { createPdfFromCanvases, PdfPageInput } from '../core/pdf';
+import { createPdfFromCanvases, PdfCompressionPreset, PdfPageInput } from '../core/pdf';
 import { loadPageCanvasFromDisk } from '../core/storage/pageStore';
 import { saveDocumentToLibrary } from '../core/storage/documentLibrary';
 import { dewarpBookCurvature } from '../core/geometry';
@@ -17,6 +17,9 @@ import {
   ChevronRight,
   BookA,
   Search,
+  RotateCcw,
+  RotateCw,
+  Edit3,
 } from 'lucide-react';
 
 interface EnhanceViewProps {
@@ -24,6 +27,9 @@ interface EnhanceViewProps {
   onBackToCamera: () => void;
   onAddMorePages: () => void;
   onDeletePage: (index: number) => void;
+  onMovePage: (fromIndex: number, toIndex: number) => void;
+  onRetakePage: (index: number) => void;
+  onRotatePage: (index: number) => Promise<void>;
   onResetAll: () => void;
 }
 
@@ -32,15 +38,26 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
   onBackToCamera,
   onAddMorePages,
   onDeletePage,
+  onMovePage,
+  onRetakePage,
+  onRotatePage,
 }) => {
   const [currentPageIndex, setCurrentPageIndex] = useState<number>(0);
   const [activeFilter, setActiveFilter] = useState<FilterType>('magic');
-  const [curvature, setCurvature] = useState<number>(0); // 0 to 1
-  const [spinePos, setSpinePos] = useState<number>(0.5); // 0.15 (left), 0.5 (center), 0.85 (right)
-  const [enableOcr, setEnableOcr] = useState<boolean>(true); // Searchable PDF toggle
+  const [curvature, setCurvature] = useState<number>(0);
+  const [spinePos, setSpinePos] = useState<number>(0.5);
+  const [enableOcr, setEnableOcr] = useState<boolean>(true);
+  const [compressionPreset, setCompressionPreset] = useState<PdfCompressionPreset>('balanced');
   const [pdfGenerating, setPdfGenerating] = useState(false);
   const [ocrStatus, setOcrStatus] = useState<string>('');
   const [fullResPreviewUrl, setFullResPreviewUrl] = useState<string>('');
+  const [docTitle, setDocTitle] = useState<string>(() => {
+    const d = new Date();
+    const dateStr = d.toISOString().slice(0, 10);
+    const timeStr = d.toTimeString().slice(0, 5).replace(':', '-');
+    return `Otium_Doc_${dateStr}_${timeStr}`;
+  });
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
 
   const safeIndex = Math.min(currentPageIndex, Math.max(0, pages.length - 1));
   const currentPage = pages[safeIndex];
@@ -66,10 +83,10 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     };
   }, [currentPage?.id, curvature, spinePos]);
 
-  const triggerHaptic = () => {
+  const triggerHaptic = (duration = 15) => {
     if ('vibrate' in navigator) {
       try {
-        navigator.vibrate(10);
+        navigator.vibrate(duration);
       } catch {}
     }
   };
@@ -95,14 +112,26 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     }
 
     setOcrStatus('');
-    return await createPdfFromCanvases(pageInputs);
+    return await createPdfFromCanvases(pageInputs, compressionPreset);
+  };
+
+  const handleRotateCurrentPage = async () => {
+    triggerHaptic(20);
+    try {
+      await onRotatePage(safeIndex);
+      const canvas = await loadPageCanvasFromDisk(currentPage.id);
+      const finalCanvas = curvature > 0 ? dewarpBookCurvature(canvas, curvature, spinePos) : canvas;
+      setFullResPreviewUrl(finalCanvas.toDataURL('image/jpeg', 0.9));
+    } catch (e) {
+      console.warn('Rotation failed:', e);
+    }
   };
 
   const persistToLibrary = async (pdfBlob: Blob) => {
     try {
       await saveDocumentToLibrary({
         id: `doc_${Date.now()}`,
-        title: `Scan — ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+        title: docTitle.trim() || `Scan — ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
         pageCount: pages.length,
         thumbnail: pages[0].thumbnailDataUrl,
         pdfBlob,
@@ -113,19 +142,19 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
   };
 
   const handleSharePdf = async () => {
-    triggerHaptic();
+    triggerHaptic(20);
     setPdfGenerating(true);
     try {
       const pdfBlob = await generateCompiledPdf();
       await persistToLibrary(pdfBlob);
 
-      const filename = `Otium_Scan_${Date.now()}.pdf`;
+      const filename = `${docTitle.trim() || 'Otium_Scan'}.pdf`;
       const pdfFile = new File([pdfBlob], filename, { type: 'application/pdf' });
 
       if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
         await navigator.share({
           files: [pdfFile],
-          title: 'Otium Scan Document',
+          title: docTitle.trim() || 'Otium Document',
           text: `Scanned document (${pages.length} pages)`,
         });
       } else {
@@ -133,7 +162,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
       }
     } catch {
       const pdfBlob = await generateCompiledPdf();
-      downloadBlob(pdfBlob, `Otium_Scan_${Date.now()}.pdf`);
+      downloadBlob(pdfBlob, `${docTitle.trim() || 'Otium_Scan'}.pdf`);
     } finally {
       setPdfGenerating(false);
       setOcrStatus('');
@@ -150,12 +179,12 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
   };
 
   const handleDownloadPdf = async () => {
-    triggerHaptic();
+    triggerHaptic(20);
     setPdfGenerating(true);
     try {
       const pdfBlob = await generateCompiledPdf();
       await persistToLibrary(pdfBlob);
-      downloadBlob(pdfBlob, `Otium_Scan_${Date.now()}.pdf`);
+      downloadBlob(pdfBlob, `${docTitle.trim() || 'Otium_Scan'}.pdf`);
     } finally {
       setPdfGenerating(false);
       setOcrStatus('');
@@ -163,19 +192,19 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
   };
 
   const handleOpenInOtium = async () => {
-    triggerHaptic();
+    triggerHaptic(25);
     setPdfGenerating(true);
     try {
       const pdfBlob = await generateCompiledPdf();
       await persistToLibrary(pdfBlob);
 
-      const filename = `Otium_Scan_${Date.now()}.pdf`;
+      const filename = `${docTitle.trim() || 'Otium_Scan'}.pdf`;
       const pdfFile = new File([pdfBlob], filename, { type: 'application/pdf' });
 
       if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
         await navigator.share({
           files: [pdfFile],
-          title: 'Otium Document',
+          title: docTitle.trim() || 'Otium Document',
         });
       } else {
         downloadBlob(pdfBlob, filename);
@@ -208,27 +237,67 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
           <ArrowLeft className="w-5 h-5" />
         </button>
 
-        <div className="flex flex-col items-center">
-          <span className="text-sm font-semibold tracking-wide text-gray-200">
-            Document Review
-          </span>
+        <div className="flex flex-col items-center max-w-[48%]">
+          {isEditingTitle ? (
+            <input
+              type="text"
+              value={docTitle}
+              autoFocus
+              onBlur={() => setIsEditingTitle(false)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') setIsEditingTitle(false);
+              }}
+              onChange={(e) => setDocTitle(e.target.value)}
+              className="text-xs bg-white/10 text-white px-2 py-0.5 rounded border border-emerald-400 focus:outline-none text-center max-w-full"
+            />
+          ) : (
+            <button
+              onClick={() => setIsEditingTitle(true)}
+              className="flex items-center gap-1 text-sm font-semibold tracking-wide text-gray-200 truncate max-w-full hover:text-emerald-400"
+              title="Click to rename document"
+            >
+              <span className="truncate">{docTitle}</span>
+              <Edit3 className="w-3 h-3 text-emerald-400 opacity-70 shrink-0" />
+            </button>
+          )}
           <span className="text-[11px] text-emerald-400 font-medium">
             Page {safeIndex + 1} of {pages.length}
           </span>
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Rotate 90° Clockwise */}
+          <button
+            onClick={handleRotateCurrentPage}
+            className="p-2.5 rounded-full glass-button text-gray-300 active:text-emerald-400"
+            title="Rotate 90° Clockwise"
+          >
+            <RotateCw className="w-4 h-4" />
+          </button>
+
+          {/* Retake this page button */}
+          <button
+            onClick={() => {
+              triggerHaptic(15);
+              onRetakePage(safeIndex);
+            }}
+            className="p-2.5 rounded-full glass-button text-gray-300 active:text-emerald-400"
+            title="Retake this photo"
+          >
+            <RotateCcw className="w-4 h-4" />
+          </button>
+
           {pages.length > 1 && (
             <button
               onClick={() => {
-                triggerHaptic();
+                triggerHaptic(15);
                 onDeletePage(safeIndex);
                 if (safeIndex > 0) setCurrentPageIndex(safeIndex - 1);
               }}
               className="p-2.5 rounded-full glass-button text-red-400 active:scale-90"
               title="Delete this page"
             >
-              <Trash2 className="w-5 h-5" />
+              <Trash2 className="w-4 h-4" />
             </button>
           )}
 
@@ -243,9 +312,9 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
         </div>
       </div>
 
-      {/* Main Preview */}
+      {/* Main Preview with Carousel Navigation */}
       <div className="relative flex-1 w-full h-full flex items-center justify-center p-4 overflow-hidden">
-        <div className="relative max-w-full max-h-[56vh] rounded-xl overflow-hidden shadow-2xl border border-white/10">
+        <div className="relative max-w-full max-h-[54vh] rounded-xl overflow-hidden shadow-2xl border border-white/10">
           <img
             src={previewSource}
             alt={`Page ${safeIndex + 1}`}
@@ -253,10 +322,10 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
           />
 
           {pdfGenerating && (
-            <div className="absolute inset-0 bg-black/75 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center z-30">
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center z-30">
               <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-3" />
               <p className="text-sm font-semibold text-white">
-                {ocrStatus || 'Generating Searchable PDF...'}
+                {ocrStatus || 'Compiling Optimized PDF...'}
               </p>
             </div>
           )}
@@ -265,7 +334,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
         {safeIndex > 0 && (
           <button
             onClick={() => {
-              triggerHaptic();
+              triggerHaptic(10);
               setCurrentPageIndex(safeIndex - 1);
             }}
             className="absolute left-4 p-3 rounded-full glass-button text-white active:scale-90 shadow-xl"
@@ -277,7 +346,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
         {safeIndex < pages.length - 1 && (
           <button
             onClick={() => {
-              triggerHaptic();
+              triggerHaptic(10);
               setCurrentPageIndex(safeIndex + 1);
             }}
             className="absolute right-4 p-3 rounded-full glass-button text-white active:scale-90 shadow-xl"
@@ -287,11 +356,49 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
         )}
       </div>
 
-      {/* Bottom Controls: Filters, Book Spine Dewarp, OCR & Multi-page Actions */}
-      <div className="relative z-20 flex flex-col gap-2.5 px-6 pt-2 pb-12 glass-panel border-t-0">
-        {/* Book Spine & OCR Tools Bar */}
-        <div className="flex items-center justify-between gap-2 px-2 py-1 bg-white/5 rounded-xl border border-white/5 text-xs text-gray-300">
-          {/* Asymmetric Book Spine Flatten */}
+      {/* Bottom Controls: Tools, Reordering & Export */}
+      <div className="relative z-20 flex flex-col gap-2 px-6 pt-2 pb-12 glass-panel border-t-0">
+        {/* Tier 1 Bar: Compression Quality & OCR Settings */}
+        <div className="flex items-center justify-between gap-2 px-2.5 py-1 bg-white/5 rounded-xl border border-white/5 text-xs text-gray-300">
+          {/* Smart Compression Selector */}
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-gray-400 font-semibold">Size:</span>
+            {(['compact', 'balanced', 'max'] as const).map((tier) => (
+              <button
+                key={tier}
+                onClick={() => {
+                  triggerHaptic(10);
+                  setCompressionPreset(tier);
+                }}
+                className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all ${
+                  compressionPreset === tier
+                    ? 'bg-emerald-500 text-black font-bold shadow-sm'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                {tier === 'compact' ? 'Compact (~1.5MB)' : tier === 'balanced' ? 'Balanced' : 'Full'}
+              </button>
+            ))}
+          </div>
+
+          {/* OCR Toggle */}
+          <button
+            onClick={() => {
+              triggerHaptic(10);
+              setEnableOcr(!enableOcr);
+            }}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold transition-all ${
+              enableOcr ? 'bg-emerald-500 text-black shadow-sm' : 'bg-white/10 text-gray-400'
+            }`}
+          >
+            <Search className="w-3 h-3" />
+            <span>OCR {enableOcr ? 'ON' : 'OFF'}</span>
+          </button>
+        </div>
+
+        {/* Tier 2 Bar: Book Spine Dewarp & Page Reorder Controls */}
+        <div className="flex items-center justify-between gap-2 px-2.5 py-1 bg-white/5 rounded-xl border border-white/5 text-xs text-gray-300">
+          {/* Book Spine Flattening */}
           <div className="flex items-center gap-1 text-emerald-400">
             <BookA className="w-3.5 h-3.5" />
             <span className="font-semibold text-[10px]">Spine:</span>
@@ -325,25 +432,39 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
             step="0.05"
             value={curvature}
             onChange={(e) => setCurvature(parseFloat(e.target.value))}
-            className="w-20 accent-emerald-500 cursor-pointer"
+            className="w-16 accent-emerald-500 cursor-pointer"
           />
 
-          {/* Searchable OCR Toggle */}
-          <button
-            onClick={() => {
-              triggerHaptic();
-              setEnableOcr(!enableOcr);
-            }}
-            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold transition-all ${
-              enableOcr
-                ? 'bg-emerald-500 text-black shadow-sm'
-                : 'bg-white/10 text-gray-400'
-            }`}
-            title="Enable OCR text layer for Ctrl+F search & copy"
-          >
-            <Search className="w-3 h-3" />
-            <span>OCR {enableOcr ? 'ON' : 'OFF'}</span>
-          </button>
+          {/* Page Reorder Buttons */}
+          {pages.length > 1 && (
+            <div className="flex items-center gap-1 border-l border-white/10 pl-2">
+              <span className="text-[10px] text-gray-400">Order:</span>
+              <button
+                disabled={safeIndex === 0}
+                onClick={() => {
+                  triggerHaptic(10);
+                  onMovePage(safeIndex, safeIndex - 1);
+                  setCurrentPageIndex(safeIndex - 1);
+                }}
+                className="px-1.5 py-0.5 rounded bg-white/10 text-white disabled:opacity-30 text-[10px] font-bold"
+                title="Move page left"
+              >
+                ◀
+              </button>
+              <button
+                disabled={safeIndex === pages.length - 1}
+                onClick={() => {
+                  triggerHaptic(10);
+                  onMovePage(safeIndex, safeIndex + 1);
+                  setCurrentPageIndex(safeIndex + 1);
+                }}
+                className="px-1.5 py-0.5 rounded bg-white/10 text-white disabled:opacity-30 text-[10px] font-bold"
+                title="Move page right"
+              >
+                ▶
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Filter Pills */}
@@ -361,7 +482,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
               <button
                 key={item.id}
                 onClick={() => {
-                  triggerHaptic();
+                  triggerHaptic(10);
                   setActiveFilter(item.id);
                 }}
                 className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
@@ -383,7 +504,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
             <button
               key={p.id}
               onClick={() => {
-                triggerHaptic();
+                triggerHaptic(10);
                 setCurrentPageIndex(idx);
               }}
               className={`relative flex-shrink-0 w-12 h-16 rounded-lg overflow-hidden border-2 transition-all ${
@@ -405,7 +526,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
 
           <button
             onClick={() => {
-              triggerHaptic();
+              triggerHaptic(15);
               onAddMorePages();
             }}
             className="flex-shrink-0 w-12 h-16 rounded-lg border-2 border-dashed border-emerald-500/50 flex flex-col items-center justify-center text-emerald-400 active:scale-95 glass-button"
@@ -417,7 +538,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
         </div>
 
         {/* Action Row */}
-        <div className="flex items-center gap-3 mt-1">
+        <div className="flex items-center gap-3 mt-0.5">
           <button
             onClick={handleOpenInOtium}
             disabled={pdfGenerating}
