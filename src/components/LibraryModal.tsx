@@ -1,7 +1,28 @@
-import React, { useEffect, useState } from 'react';
-import { LibraryDocument, getAllLibraryDocuments, deleteDocumentFromLibrary } from '../core/storage/documentLibrary';
+import React, { useEffect, useState, useRef } from 'react';
+import {
+  LibraryDocument,
+  getAllLibraryDocuments,
+  deleteDocumentFromLibrary,
+  exportVaultBackup,
+  restoreVaultBackup,
+} from '../core/storage/documentLibrary';
 import { hasVaultPin, verifyVaultPin, setVaultPin, clearVaultPin } from '../core/security';
-import { X, Trash2, Share2, BookOpen, Clock, FileText, Search, Lock, Unlock, ShieldCheck, Delete } from 'lucide-react';
+import {
+  X,
+  Trash2,
+  Share2,
+  BookOpen,
+  Clock,
+  FileText,
+  Search,
+  Lock,
+  Unlock,
+  ShieldCheck,
+  Delete,
+  DownloadCloud,
+  UploadCloud,
+  CheckCircle2,
+} from 'lucide-react';
 
 interface LibraryModalProps {
   isOpen: boolean;
@@ -19,6 +40,8 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose }) =
   const [isSettingPin, setIsSettingPin] = useState<boolean>(false);
   const [newPinDraft, setNewPinDraft] = useState<string>('');
   const [pinError, setPinError] = useState<boolean>(false);
+  const [toastMsg, setToastMsg] = useState<string>('');
+  const backupInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -69,6 +92,51 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose }) =
       a.download = `${doc.title}.pdf`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+  };
+
+  const handleExportBackup = async () => {
+    triggerHaptic(20);
+    try {
+      const backupBlob = await exportVaultBackup();
+      const filename = `Otium_Vault_Backup_${new Date().toISOString().slice(0, 10)}.otiumvault`;
+      const file = new File([backupBlob], filename, { type: 'application/octet-stream' });
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: 'Otium Scan Vault Backup',
+        });
+      } else {
+        const url = URL.createObjectURL(backupBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+      setToastMsg('Vault backup exported successfully');
+      setTimeout(() => setToastMsg(''), 2500);
+    } catch (e) {
+      console.warn('Backup export failed:', e);
+    }
+  };
+
+  const handleRestoreFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    triggerHaptic(20);
+    try {
+      const count = await restoreVaultBackup(file);
+      await loadDocs();
+      setToastMsg(`Restored ${count} documents from backup!`);
+      setTimeout(() => setToastMsg(''), 3000);
+    } catch (err: any) {
+      console.warn('Backup restore error:', err);
+      setToastMsg('Corrupted or invalid backup file');
+      setTimeout(() => setToastMsg(''), 2500);
+    } finally {
+      if (backupInputRef.current) backupInputRef.current.value = '';
     }
   };
 
@@ -263,7 +331,27 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose }) =
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          {/* Backup Vault Archive */}
+          {documents.length > 0 && (
+            <button
+              onClick={handleExportBackup}
+              className="p-2 rounded-full glass-button text-gray-300 active:text-emerald-400"
+              title="Backup Vault (.otiumvault)"
+            >
+              <DownloadCloud className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Restore Vault Archive */}
+          <button
+            onClick={() => backupInputRef.current?.click()}
+            className="p-2 rounded-full glass-button text-gray-300 active:text-emerald-400"
+            title="Restore Vault from Backup (.otiumvault)"
+          >
+            <UploadCloud className="w-4 h-4" />
+          </button>
+
           {/* PIN Lock Management */}
           {pinEnabled ? (
             <button
@@ -295,6 +383,16 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose }) =
           </button>
         </div>
       </div>
+
+      {/* Floating Status Notification */}
+      {toastMsg && (
+        <div className="absolute top-24 inset-x-0 flex justify-center z-50 pointer-events-none animate-in fade-in duration-200">
+          <span className="px-4 py-1.5 rounded-full bg-emerald-500 text-black font-semibold text-xs shadow-2xl flex items-center gap-1.5 border border-white/20">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>{toastMsg}</span>
+          </span>
+        </div>
+      )}
 
       {/* Realtime Search Bar */}
       {documents.length > 0 && (
@@ -393,6 +491,14 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose }) =
           {pinEnabled ? '🔒 PIN Protected' : '100% Offline & Private'}
         </span>
       </div>
+
+      <input
+        ref={backupInputRef}
+        type="file"
+        accept=".otiumvault,application/json"
+        onChange={handleRestoreFile}
+        className="hidden"
+      />
     </div>
   );
 };

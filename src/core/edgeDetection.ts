@@ -118,3 +118,69 @@ export function detectDocumentCorners(
     return getDefaultQuad(naturalW, naturalH);
   }
 }
+
+/**
+ * Calculates the focus sharpness of an image using Laplacian operator variance.
+ * Blurry or out-of-focus camera frames yield low variance (< 50).
+ * Crisp, in-focus documents yield high variance (> 75).
+ */
+export function calculateLaplacianSharpness(
+  sourceImage: HTMLImageElement | HTMLCanvasElement
+): number {
+  const w = 'naturalWidth' in sourceImage ? sourceImage.naturalWidth : sourceImage.width;
+  const h = 'naturalHeight' in sourceImage ? sourceImage.naturalHeight : sourceImage.height;
+
+  // Downsample to 160px for sub-millisecond execution (<2ms)
+  const scale = Math.min(1, 160 / Math.max(w, h));
+  const workW = Math.max(10, Math.round(w * scale));
+  const workH = Math.max(10, Math.round(h * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = workW;
+  canvas.height = workH;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return 100;
+
+  ctx.drawImage(sourceImage, 0, 0, workW, workH);
+  const imgData = ctx.getImageData(0, 0, workW, workH);
+  const data = imgData.data;
+
+  const total = workW * workH;
+  const gray = new Uint8Array(total);
+  for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+    gray[j] = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+  }
+
+  // 3x3 Laplacian Operator
+  let sum = 0;
+  let count = 0;
+  const lapScores = new Float32Array(total);
+
+  for (let y = 1; y < workH - 1; y++) {
+    const row = y * workW;
+    for (let x = 1; x < workW - 1; x++) {
+      const idx = row + x;
+      const val =
+        gray[idx - workW] +
+        gray[idx + workW] +
+        gray[idx - 1] +
+        gray[idx + 1] -
+        4 * gray[idx];
+
+      lapScores[count] = val;
+      sum += val;
+      count++;
+    }
+  }
+
+  if (count === 0) return 0;
+  const mean = sum / count;
+
+  let variance = 0;
+  for (let i = 0; i < count; i++) {
+    const diff = lapScores[i] - mean;
+    variance += diff * diff;
+  }
+
+  return Math.round(variance / count);
+}

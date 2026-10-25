@@ -6,7 +6,10 @@ let workerPromise: ReturnType<typeof createWorker> | null = null;
 async function getWorker(lang: string = 'eng') {
   if (!workerPromise) {
     workerPromise = (async () => {
+      // Configure local cache persistence so language weights are saved to IndexedDB
       const worker = await createWorker(lang, 1, {
+        cacheMethod: 'write',
+        gzip: true,
         logger: () => {}, // silent
       });
       return worker;
@@ -24,6 +27,12 @@ export async function performOcr(
   lang: string = 'eng',
   timeoutMs: number = 6000
 ): Promise<OcrWordToken[]> {
+  // If user is completely offline and worker is uninitialized, avoid stalling export
+  const effectiveTimeout =
+    typeof navigator !== 'undefined' && !navigator.onLine && !workerPromise
+      ? 1500
+      : timeoutMs;
+
   const ocrTask = async (): Promise<OcrWordToken[]> => {
     try {
       const worker = await getWorker(lang);
@@ -57,9 +66,9 @@ export async function performOcr(
 
   const timeoutPromise = new Promise<OcrWordToken[]>((resolve) =>
     setTimeout(() => {
-      console.warn(`OCR timed out after ${timeoutMs}ms; proceeding without text layer for this page.`);
+      console.warn(`OCR timed out after ${effectiveTimeout}ms; proceeding without text layer for this page.`);
       resolve([]);
-    }, timeoutMs)
+    }, effectiveTimeout)
   );
 
   return Promise.race([ocrTask(), timeoutPromise]);

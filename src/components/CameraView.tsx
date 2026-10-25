@@ -8,8 +8,11 @@ import {
   FolderArchive,
   ScanLine,
   Sparkles,
+  Eye,
 } from 'lucide-react';
 import { playShutterSound } from '../core/audio';
+import { detectDocumentCorners, calculateLaplacianSharpness } from '../core/edgeDetection';
+import { Quad } from '../core/types';
 
 interface CameraViewProps {
   onCapture: (imageDataUrl: string, isBatchMode: boolean) => void;
@@ -35,6 +38,9 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const [flashAnimation, setFlashAnimation] = useState(false);
   const [autoCaptureEnabled, setAutoCaptureEnabled] = useState(false);
   const [autoCaptureProgress, setAutoCaptureProgress] = useState(0);
+  const [liveQuad, setLiveQuad] = useState<Quad | null>(null);
+  const [isSharp, setIsSharp] = useState<boolean>(true);
+  const [sharpnessScore, setSharpnessScore] = useState<number>(100);
   const [tilt, setTilt] = useState<{ x: number; y: number; isLevel: boolean }>({
     x: 0,
     y: 0,
@@ -92,6 +98,66 @@ export const CameraView: React.FC<CameraViewProps> = ({
       }
     };
   }, []);
+
+  // Real-Time Computer Vision Loop (Live Quad Polygon & Laplacian Focus Gate)
+  useEffect(() => {
+    let active = true;
+    const sampleCanvas = document.createElement('canvas');
+    sampleCanvas.width = 160;
+    sampleCanvas.height = 120;
+    const ctx = sampleCanvas.getContext('2d', { willReadFrequently: true });
+
+    const interval = setInterval(() => {
+      if (!active || !videoRef.current || videoRef.current.readyState < 2 || videoRef.current.videoWidth === 0) {
+        return;
+      }
+
+      const video = videoRef.current;
+      if (!ctx) return;
+
+      ctx.drawImage(video, 0, 0, sampleCanvas.width, sampleCanvas.height);
+      const sharpness = calculateLaplacianSharpness(sampleCanvas);
+      const sharp = sharpness >= 45;
+      setIsSharp(sharp);
+      setSharpnessScore(sharpness);
+
+      // Only attempt edge detection if camera focus is sharp
+      if (sharp) {
+        try {
+          const quad = detectDocumentCorners(sampleCanvas);
+          // Normalize quad coords to percentages (0 to 100)
+          const normQuad: Quad = {
+            topLeft: {
+              x: Math.round((quad.topLeft.x / sampleCanvas.width) * 100),
+              y: Math.round((quad.topLeft.y / sampleCanvas.height) * 100),
+            },
+            topRight: {
+              x: Math.round((quad.topRight.x / sampleCanvas.width) * 100),
+              y: Math.round((quad.topRight.y / sampleCanvas.height) * 100),
+            },
+            bottomRight: {
+              x: Math.round((quad.bottomRight.x / sampleCanvas.width) * 100),
+              y: Math.round((quad.bottomRight.y / sampleCanvas.height) * 100),
+            },
+            bottomLeft: {
+              x: Math.round((quad.bottomLeft.x / sampleCanvas.width) * 100),
+              y: Math.round((quad.bottomLeft.y / sampleCanvas.height) * 100),
+            },
+          };
+          setLiveQuad(normQuad);
+        } catch {
+          setLiveQuad(null);
+        }
+      } else {
+        setLiveQuad(null);
+      }
+    }, 120);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [hasPermission]);
 
   const triggerHaptic = (duration = 25) => {
     if ('vibrate' in navigator) {
@@ -160,32 +226,35 @@ export const CameraView: React.FC<CameraViewProps> = ({
     }
   }, [capturing, onCapture, scanMode, stream]);
 
-  // Hands-Free Auto-Capture Monitor: Triggers snap when document is steady & level
+  // Tri-Condition Hands-Free Auto-Capture Gate:
+  // 1. Phone is level (<3.5° roll/pitch)
+  // 2. Camera focus is sharp (Laplacian variance >= 45)
+  // 3. True document quad is locked in view
+  const isAutoCaptureReady =
+    autoCaptureEnabled &&
+    tilt.isLevel &&
+    isSharp &&
+    liveQuad !== null &&
+    !capturing;
+
   useEffect(() => {
-    if (!autoCaptureEnabled || capturing) {
+    if (!isAutoCaptureReady) {
       setAutoCaptureProgress(0);
       return;
     }
 
-    let interval: ReturnType<typeof setInterval> | null = null;
-    if (tilt.isLevel) {
-      interval = setInterval(() => {
-        setAutoCaptureProgress((prev) => {
-          if (prev >= 100) {
-            handleCapture();
-            return 0;
-          }
-          return prev + 14; // ~450ms smooth countdown
-        });
-      }, 50);
-    } else {
-      setAutoCaptureProgress(0);
-    }
+    const interval = setInterval(() => {
+      setAutoCaptureProgress((prev) => {
+        if (prev >= 100) {
+          handleCapture();
+          return 0;
+        }
+        return prev + 15; // ~400ms countdown
+      });
+    }, 50);
 
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [autoCaptureEnabled, tilt.isLevel, capturing, handleCapture]);
+    return () => clearInterval(interval);
+  }, [isAutoCaptureReady, handleCapture]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -319,6 +388,30 @@ export const CameraView: React.FC<CameraViewProps> = ({
           </div>
         )}
 
+        {/* Real-Time Dynamic Live Document Mesh Overlay */}
+        {liveQuad && (
+          <svg
+            className="absolute inset-0 w-full h-full pointer-events-none z-10 animate-in fade-in duration-100"
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+          >
+            <polygon
+              points={`${liveQuad.topLeft.x},${liveQuad.topLeft.y} ${liveQuad.topRight.x},${liveQuad.topRight.y} ${liveQuad.bottomRight.x},${liveQuad.bottomRight.y} ${liveQuad.bottomLeft.x},${liveQuad.bottomLeft.y}`}
+              className="fill-emerald-500/20 stroke-emerald-400 stroke-[1.2] transition-all duration-100"
+              strokeDasharray="3 2"
+            />
+            {[liveQuad.topLeft, liveQuad.topRight, liveQuad.bottomRight, liveQuad.bottomLeft].map((pt, i) => (
+              <circle
+                key={i}
+                cx={pt.x}
+                cy={pt.y}
+                r="1.8"
+                className="fill-emerald-400 stroke-black stroke-[0.4]"
+              />
+            ))}
+          </svg>
+        )}
+
         {/* Viewfinder Framing Guide */}
         <div className="pointer-events-none absolute inset-x-8 inset-y-16 border-2 border-emerald-500/30 rounded-2xl">
           <div className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-emerald-400 rounded-tl-lg" />
@@ -350,9 +443,16 @@ export const CameraView: React.FC<CameraViewProps> = ({
           </div>
 
           <div className="absolute bottom-4 inset-x-0 text-center">
-            <span className="text-xs bg-black/60 backdrop-blur-md px-3.5 py-1.5 rounded-full text-gray-200 border border-white/10">
-              {tilt.isLevel ? (
-                <span className="text-emerald-400 font-semibold">Perfect Alignment (Level)</span>
+            <span className="text-xs bg-black/60 backdrop-blur-md px-3.5 py-1.5 rounded-full text-gray-200 border border-white/10 inline-flex items-center justify-center gap-1.5 mx-auto max-w-fit">
+              {!isSharp ? (
+                <span className="text-amber-400 font-semibold">Adjusting Focus ({sharpnessScore})...</span>
+              ) : liveQuad ? (
+                <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Document Locked {tilt.isLevel ? '(Auto-snapping)' : '— Hold Level'}</span>
+                </span>
+              ) : tilt.isLevel ? (
+                <span className="text-emerald-400 font-semibold">Level — Align Document</span>
               ) : scanMode === 'batch' ? (
                 `Rapid Batch Mode — ${pagesCount} captured`
               ) : (
