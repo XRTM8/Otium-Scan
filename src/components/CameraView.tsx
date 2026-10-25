@@ -20,9 +20,8 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [torchOn, setTorchOn] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
-  const [sensorMode, setSensorMode] = useState<'viewfinder' | 'native_sensor'>('viewfinder');
+  const [capturing, setCapturing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const nativeCameraInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     let currentStream: MediaStream | null = null;
@@ -32,7 +31,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
         const mediaStream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: 'environment' },
-            width: { ideal: 3840 }, // Request 4K UHD if available
+            width: { ideal: 4096 }, // Request 4K/Max sensor dimensions
             height: { ideal: 2160 },
           },
           audio: false,
@@ -63,35 +62,70 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const triggerHaptic = () => {
     if ('vibrate' in navigator) {
       try {
-        navigator.vibrate(20);
+        navigator.vibrate(25);
       } catch {}
     }
   };
 
-  const handleCapture = () => {
+  /**
+   * Captures at full sensor hardware resolution in-app using ImageCapture API
+   * without launching external apps or losing WebView state.
+   */
+  const handleCapture = async () => {
+    if (capturing) return;
     triggerHaptic();
+    setCapturing(true);
 
-    // If native sensor mode is enabled, trigger device's native high-res camera app
-    if (sensorMode === 'native_sensor') {
-      nativeCameraInputRef.current?.click();
-      return;
-    }
+    try {
+      if (stream) {
+        const track = stream.getVideoTracks()[0];
 
-    if (videoRef.current && videoRef.current.videoWidth > 0) {
-      const video = videoRef.current;
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.96);
-        onCapture(dataUrl);
-        return;
+        // Modern Android WebView ImageCapture API (Full 12MP-48MP Sensor capture)
+        if ('ImageCapture' in window) {
+          try {
+            const imageCapture = new (window as any).ImageCapture(track);
+            const blob: Blob = await imageCapture.takePhoto({
+              imageWidth: 4000,
+              imageHeight: 3000,
+            });
+
+            const reader = new FileReader();
+            reader.onload = () => {
+              if (typeof reader.result === 'string') {
+                setCapturing(false);
+                onCapture(reader.result);
+              }
+            };
+            reader.readAsDataURL(blob);
+            return;
+          } catch (e) {
+            console.warn('ImageCapture fallback to video canvas:', e);
+          }
+        }
       }
-    }
 
-    fileInputRef.current?.click();
+      // High-resolution Canvas fallback from live stream
+      if (videoRef.current && videoRef.current.videoWidth > 0) {
+        const video = videoRef.current;
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.96);
+          setCapturing(false);
+          onCapture(dataUrl);
+          return;
+        }
+      }
+
+      fileInputRef.current?.click();
+    } catch {
+      fileInputRef.current?.click();
+    } finally {
+      setCapturing(false);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -146,26 +180,15 @@ export const CameraView: React.FC<CameraViewProps> = ({
           </span>
         </div>
 
-        {/* Camera Sensor Mode Switcher & Tools */}
+        {/* Status Indicators & Tools */}
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              triggerHaptic();
-              setSensorMode((m) => (m === 'viewfinder' ? 'native_sensor' : 'viewfinder'));
-            }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
-              sensorMode === 'native_sensor'
-                ? 'bg-emerald-500 text-black shadow-md'
-                : 'glass-button text-gray-300'
-            }`}
-            title="Switch between instant viewfinder and full-resolution hardware sensor"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>{sensorMode === 'native_sensor' ? 'Ultra HD' : 'Fast'}</span>
-          </button>
+          <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-[11px] font-semibold">
+            <Sparkles className="w-3 h-3" />
+            <span>4K Sensor</span>
+          </div>
 
           {pagesCount > 0 && (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
               <Layers className="w-3.5 h-3.5" />
               <span>{pagesCount}</span>
             </div>
@@ -208,9 +231,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
           <div className="absolute bottom-4 inset-x-0 text-center">
             <span className="text-xs bg-black/60 backdrop-blur-md px-3.5 py-1.5 rounded-full text-gray-200 border border-white/10">
-              {sensorMode === 'native_sensor'
-                ? 'Full 48MP/50MP Hardware Sensor'
-                : 'Instant Alignment Frame'}
+              Align document inside frame
             </span>
           </div>
         </div>
@@ -226,13 +247,14 @@ export const CameraView: React.FC<CameraViewProps> = ({
           <ImageIcon className="w-6 h-6 text-gray-200" />
         </button>
 
-        {/* Tactile Shutter Button */}
+        {/* Tactile In-App Shutter Button */}
         <button
           onClick={handleCapture}
-          className="relative flex items-center justify-center w-20 h-20 rounded-full border-4 border-emerald-500/30 p-1 active:scale-95 transition-transform"
+          disabled={capturing}
+          className="relative flex items-center justify-center w-20 h-20 rounded-full border-4 border-emerald-500/30 p-1 active:scale-95 transition-transform disabled:opacity-50"
         >
           <div className="w-full h-full rounded-full bg-emerald-500 emerald-glow flex items-center justify-center shadow-lg">
-            <div className="w-7 h-7 rounded-full bg-white/20" />
+            <div className={`w-7 h-7 rounded-full bg-white/20 ${capturing ? 'animate-ping' : ''}`} />
           </div>
         </button>
 
@@ -265,16 +287,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
         ref={fileInputRef}
         type="file"
         accept="image/*"
-        onChange={handleFileChange}
-        className="hidden"
-      />
-
-      {/* Native full-resolution camera trigger */}
-      <input
-        ref={nativeCameraInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
         onChange={handleFileChange}
         className="hidden"
       />

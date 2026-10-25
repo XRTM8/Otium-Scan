@@ -111,8 +111,14 @@ jobs:
           keyAlias=$ANDROID_KEY_ALIAS
           keyPassword=$ANDROID_KEY_PASSWORD
           EOF
-          else
-            echo "No custom keystore secrets found; will proceed with standard build."
+          elif [ -f "src-tauri/otium-scan-release.jks" ]; then
+            cp src-tauri/otium-scan-release.jks "$keystore_dir/release.jks"
+            cat > "$keystore_dir/keystore.properties" <<EOF
+          storeFile=release.jks
+          storePassword=otiumscan123
+          keyAlias=otium_scan
+          keyPassword=otiumscan123
+          EOF
           fi
 
       - name: Build Android APK

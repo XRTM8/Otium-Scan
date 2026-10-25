@@ -33,9 +33,6 @@ export function getDefaultQuad(width: number, height: number): Quad {
   };
 }
 
-/**
- * High-performance Perspective Warp via 8x8 Subdivision Mesh
- */
 export function warpPerspective(
   source: HTMLImageElement | HTMLCanvasElement,
   quad: Quad,
@@ -63,13 +60,15 @@ export function warpPerspective(
 }
 
 /**
- * 3D Book Spine Curvature Dewarping Engine.
- * Flattens arched and curved text lines in thick bound books.
+ * Enterprise 3D Book Spine Curvature Dewarping Engine.
+ * Supports asymmetric book spines (left page vs right page vs center gutter).
  * @param curvature 0 to 1 intensity of spine curvature correction
+ * @param spinePosition 0 (left edge), 0.5 (center), 1 (right edge spine)
  */
 export function dewarpBookCurvature(
   sourceCanvas: HTMLCanvasElement,
-  curvature: number = 0.25
+  curvature: number = 0.25,
+  spinePosition: number = 0.5
 ): HTMLCanvasElement {
   if (curvature <= 0.02) return sourceCanvas;
 
@@ -82,15 +81,17 @@ export function dewarpBookCurvature(
   const ctx = destCanvas.getContext('2d');
   if (!ctx) return sourceCanvas;
 
-  // Split into 64 fine vertical strips and shift along cylindrical arc
+  // 64 fine vertical slices for subpixel smooth warping
   const strips = 64;
   const stripW = w / strips;
-  const maxLift = h * 0.08 * curvature;
+  const maxLift = h * 0.1 * curvature;
+  const sigma = 0.35; // Falloff spread from spine gutter
 
   for (let i = 0; i < strips; i++) {
     const normX = i / strips;
-    // Parabolic/sine cylindrical deflection model
-    const deflection = Math.sin(normX * Math.PI) * maxLift;
+    // Asymmetric Gaussian curvature model centered at true spine location
+    const distFromSpine = normX - spinePosition;
+    const deflection = Math.exp(-(distFromSpine * distFromSpine) / (2 * sigma * sigma)) * maxLift;
 
     const sx = i * stripW;
     const sy = 0;
@@ -142,10 +143,9 @@ function bilinearInterpolate(tl: Point, tr: Point, bl: Point, br: Point, u: numb
   const topX = tl.x + (tr.x - tl.x) * u;
   const topY = tl.y + (tr.y - tl.y) * u;
   const botX = bl.x + (br.x - bl.x) * u;
-  const botY = bl.y + (br.y - bl.y) * u;
   return {
     x: topX + (botX - topX) * v,
-    y: topY + (botY - topY) * v,
+    y: topY + (bl.y + (br.y - bl.y) * u - topY) * v,
   };
 }
 

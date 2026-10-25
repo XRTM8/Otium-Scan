@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { FilterType, ScannedPage } from '../core/types';
-import { createPdfFromCanvases } from '../core/pdf';
+import { createPdfFromCanvases, PdfPageInput } from '../core/pdf';
 import { loadPageCanvasFromDisk } from '../core/storage/pageStore';
 import { saveDocumentToLibrary } from '../core/storage/documentLibrary';
 import { dewarpBookCurvature } from '../core/geometry';
+import { performOcr } from '../core/ocr/ocrEngine';
 import {
   ArrowLeft,
   Share2,
@@ -15,6 +16,7 @@ import {
   ChevronLeft,
   ChevronRight,
   BookA,
+  Search,
 } from 'lucide-react';
 
 interface EnhanceViewProps {
@@ -34,7 +36,10 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
   const [currentPageIndex, setCurrentPageIndex] = useState<number>(0);
   const [activeFilter, setActiveFilter] = useState<FilterType>('magic');
   const [curvature, setCurvature] = useState<number>(0); // 0 to 1
+  const [spinePos, setSpinePos] = useState<number>(0.5); // 0.15 (left), 0.5 (center), 0.85 (right)
+  const [enableOcr, setEnableOcr] = useState<boolean>(true); // Searchable PDF toggle
   const [pdfGenerating, setPdfGenerating] = useState(false);
+  const [ocrStatus, setOcrStatus] = useState<string>('');
   const [fullResPreviewUrl, setFullResPreviewUrl] = useState<string>('');
 
   const safeIndex = Math.min(currentPageIndex, Math.max(0, pages.length - 1));
@@ -47,8 +52,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     loadPageCanvasFromDisk(currentPage.id)
       .then((canvas) => {
         if (!active) return;
-        // Apply book spine curvature dewarping if requested
-        const finalCanvas = curvature > 0 ? dewarpBookCurvature(canvas, curvature) : canvas;
+        const finalCanvas = curvature > 0 ? dewarpBookCurvature(canvas, curvature, spinePos) : canvas;
         setFullResPreviewUrl(finalCanvas.toDataURL('image/jpeg', 0.9));
       })
       .catch(() => {
@@ -60,7 +64,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     return () => {
       active = false;
     };
-  }, [currentPage?.id, curvature]);
+  }, [currentPage?.id, curvature, spinePos]);
 
   const triggerHaptic = () => {
     if ('vibrate' in navigator) {
@@ -71,13 +75,27 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
   };
 
   const generateCompiledPdf = async (): Promise<Blob> => {
-    const canvases: HTMLCanvasElement[] = [];
-    for (const page of pages) {
-      const c = await loadPageCanvasFromDisk(page.id);
-      const processed = curvature > 0 ? dewarpBookCurvature(c, curvature) : c;
-      canvases.push(processed);
+    const pageInputs: PdfPageInput[] = [];
+
+    for (let i = 0; i < pages.length; i++) {
+      const page = pages[i];
+      const rawCanvas = await loadPageCanvasFromDisk(page.id);
+      const processed = curvature > 0 ? dewarpBookCurvature(rawCanvas, curvature, spinePos) : rawCanvas;
+
+      let words: import('../core/pdf').OcrWordToken[] = [];
+      if (enableOcr) {
+        setOcrStatus(`OCR scanning page ${i + 1} of ${pages.length}...`);
+        words = await performOcr(processed, 'eng');
+      }
+
+      pageInputs.push({
+        canvas: processed,
+        words,
+      });
     }
-    return await createPdfFromCanvases(canvases);
+
+    setOcrStatus('');
+    return await createPdfFromCanvases(pageInputs);
   };
 
   const persistToLibrary = async (pdfBlob: Blob) => {
@@ -118,6 +136,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
       downloadBlob(pdfBlob, `Otium_Scan_${Date.now()}.pdf`);
     } finally {
       setPdfGenerating(false);
+      setOcrStatus('');
     }
   };
 
@@ -139,6 +158,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
       downloadBlob(pdfBlob, `Otium_Scan_${Date.now()}.pdf`);
     } finally {
       setPdfGenerating(false);
+      setOcrStatus('');
     }
   };
 
@@ -162,6 +182,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
       }
     } finally {
       setPdfGenerating(false);
+      setOcrStatus('');
     }
   };
 
@@ -224,12 +245,21 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
 
       {/* Main Preview */}
       <div className="relative flex-1 w-full h-full flex items-center justify-center p-4 overflow-hidden">
-        <div className="relative max-w-full max-h-[60vh] rounded-xl overflow-hidden shadow-2xl border border-white/10">
+        <div className="relative max-w-full max-h-[56vh] rounded-xl overflow-hidden shadow-2xl border border-white/10">
           <img
             src={previewSource}
             alt={`Page ${safeIndex + 1}`}
             className="w-full h-full object-contain block pointer-events-none"
           />
+
+          {pdfGenerating && (
+            <div className="absolute inset-0 bg-black/75 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center z-30">
+              <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-3" />
+              <p className="text-sm font-semibold text-white">
+                {ocrStatus || 'Generating Searchable PDF...'}
+              </p>
+            </div>
+          )}
         </div>
 
         {safeIndex > 0 && (
@@ -257,14 +287,37 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
         )}
       </div>
 
-      {/* Bottom Controls: Filters, Book Spine Dewarp & Multi-page Actions */}
-      <div className="relative z-20 flex flex-col gap-2.5 px-6 pt-3 pb-12 glass-panel border-t-0">
-        {/* Book Spine Dewarping Toggle Slider */}
-        <div className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-xl border border-white/5 text-xs text-gray-300">
-          <div className="flex items-center gap-1.5 text-emerald-400">
-            <BookA className="w-4 h-4" />
-            <span className="font-semibold text-[11px]">Book Spine Flatten:</span>
+      {/* Bottom Controls: Filters, Book Spine Dewarp, OCR & Multi-page Actions */}
+      <div className="relative z-20 flex flex-col gap-2.5 px-6 pt-2 pb-12 glass-panel border-t-0">
+        {/* Book Spine & OCR Tools Bar */}
+        <div className="flex items-center justify-between gap-2 px-2 py-1 bg-white/5 rounded-xl border border-white/5 text-xs text-gray-300">
+          {/* Asymmetric Book Spine Flatten */}
+          <div className="flex items-center gap-1 text-emerald-400">
+            <BookA className="w-3.5 h-3.5" />
+            <span className="font-semibold text-[10px]">Spine:</span>
           </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setSpinePos(0.15)}
+              className={`px-1.5 py-0.5 rounded text-[10px] ${spinePos <= 0.25 ? 'bg-emerald-500 text-black font-bold' : 'text-gray-400'}`}
+            >
+              L
+            </button>
+            <button
+              onClick={() => setSpinePos(0.5)}
+              className={`px-1.5 py-0.5 rounded text-[10px] ${spinePos > 0.25 && spinePos < 0.75 ? 'bg-emerald-500 text-black font-bold' : 'text-gray-400'}`}
+            >
+              Center
+            </button>
+            <button
+              onClick={() => setSpinePos(0.85)}
+              className={`px-1.5 py-0.5 rounded text-[10px] ${spinePos >= 0.75 ? 'bg-emerald-500 text-black font-bold' : 'text-gray-400'}`}
+            >
+              R
+            </button>
+          </div>
+
           <input
             type="range"
             min="0"
@@ -272,11 +325,25 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
             step="0.05"
             value={curvature}
             onChange={(e) => setCurvature(parseFloat(e.target.value))}
-            className="w-32 accent-emerald-500 cursor-pointer"
+            className="w-20 accent-emerald-500 cursor-pointer"
           />
-          <span className="text-[10px] text-gray-400 font-mono">
-            {Math.round(curvature * 100)}%
-          </span>
+
+          {/* Searchable OCR Toggle */}
+          <button
+            onClick={() => {
+              triggerHaptic();
+              setEnableOcr(!enableOcr);
+            }}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold transition-all ${
+              enableOcr
+                ? 'bg-emerald-500 text-black shadow-sm'
+                : 'bg-white/10 text-gray-400'
+            }`}
+            title="Enable OCR text layer for Ctrl+F search & copy"
+          >
+            <Search className="w-3 h-3" />
+            <span>OCR {enableOcr ? 'ON' : 'OFF'}</span>
+          </button>
         </div>
 
         {/* Filter Pills */}
