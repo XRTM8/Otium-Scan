@@ -1,0 +1,181 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, for example v0.1.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: '22'
+
+jobs:
+  verify:
+    name: Verify version consistency
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Check version
+        id: version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          node scripts/check-version.mjs "$RELEASE_TAG"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+  android:
+    name: Build Android APK
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+
+      - name: Install Android NDK & SDK components
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --install \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;26.1.10909125"
+          yes | sdkmanager --licenses > /dev/null || true
+          echo "NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> "$GITHUB_ENV"
+          echo "$ANDROID_HOME/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
+
+      - run: npm ci
+
+      - name: Configure Keystore
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keystore_dir="src-tauri/gen/android/app"
+          mkdir -p "$keystore_dir"
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore_dir/release.jks"
+            cat > "$keystore_dir/keystore.properties" <<EOF
+          storeFile=release.jks
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
+          else
+            echo "No custom keystore secrets found; will proceed with standard build."
+          fi
+
+      - name: Build Android APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build
+          # Build APK via Tauri Android CLI
+          npx tauri android init || true
+          npx tauri android build --apk
+
+      - name: Package Release Assets & Checksums
+        shell: bash
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          # Locate generated APK
+          find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -exec cp {} release/OtiumScan_${VERSION}_universal.apk \; || true
+          
+          cd release
+          if [ -f "OtiumScan_${VERSION}_universal.apk" ]; then
+            sha256sum "OtiumScan_${VERSION}_universal.apk" > SHA256SUMS.txt
+          fi
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-apk
+          path: release/*
+
+  publish:
+    name: Publish GitHub Release
+    needs: [verify, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: android-release-apk
+          path: release
+
+      - name: Extract Release Notes
+        id: notes
+        shell: bash
+        run: |
+          if [ -f "release-notes.md" ]; then
+            cat release-notes.md > RELEASE_BODY.md
+          else
+            echo "Release ${{ needs.verify.outputs.tag }} of Otium Scan." > RELEASE_BODY.md
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.verify.outputs.tag }}
+          name: Otium Scan ${{ needs.verify.outputs.version }}
+          body_path: RELEASE_BODY.md
+          files: |
+            release/*
+          draft: false
+          prerelease: false
+          make_latest: true
