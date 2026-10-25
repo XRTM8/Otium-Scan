@@ -1,21 +1,14 @@
 import { Point, Quad } from './types';
 
-/**
- * Calculates Euclidean distance between two 2D points
- */
 export function distance(p1: Point, p2: Point): number {
   return Math.hypot(p2.x - p1.x, p2.y - p1.y);
 }
 
-/**
- * Ensures corners are consistently ordered: Top-Left, Top-Right, Bottom-Right, Bottom-Left
- */
 export function orderCorners(pts: Point[]): Quad {
   if (pts.length !== 4) {
     throw new Error('Quad requires exactly 4 points');
   }
 
-  // Sort by Y coordinate first to separate top and bottom pairs
   const sortedByY = [...pts].sort((a, b) => a.y - b.y);
   const topPair = sortedByY.slice(0, 2).sort((a, b) => a.x - b.x);
   const bottomPair = sortedByY.slice(2, 4).sort((a, b) => a.x - b.x);
@@ -28,9 +21,6 @@ export function orderCorners(pts: Point[]): Quad {
   };
 }
 
-/**
- * Determines default initial quad (80% inset of image boundaries)
- */
 export function getDefaultQuad(width: number, height: number): Quad {
   const insetX = width * 0.08;
   const insetY = height * 0.08;
@@ -44,8 +34,7 @@ export function getDefaultQuad(width: number, height: number): Quad {
 }
 
 /**
- * High-performance Perspective Warp.
- * Maps any quadrilateral to an orthogonal rectangular canvas.
+ * High-performance Perspective Warp via 8x8 Subdivision Mesh
  */
 export function warpPerspective(
   source: HTMLImageElement | HTMLCanvasElement,
@@ -55,7 +44,6 @@ export function warpPerspective(
 ): HTMLCanvasElement {
   const { topLeft, topRight, bottomRight, bottomLeft } = quad;
 
-  // Calculate natural dimensions from quad side lengths
   const widthTop = distance(topLeft, topRight);
   const widthBottom = distance(bottomLeft, bottomRight);
   const heightLeft = distance(topLeft, bottomLeft);
@@ -70,15 +58,58 @@ export function warpPerspective(
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return canvas;
 
-  // Render via triangular mesh subdivision (smooth & fast on mobile without heavy OpenCV)
   renderQuadSubdivision(ctx, source, quad, outW, outH);
-
   return canvas;
 }
 
 /**
- * Decomposes quad into two affine-mapped triangles for fast, native-canvas warping
+ * 3D Book Spine Curvature Dewarping Engine.
+ * Flattens arched and curved text lines in thick bound books.
+ * @param curvature 0 to 1 intensity of spine curvature correction
  */
+export function dewarpBookCurvature(
+  sourceCanvas: HTMLCanvasElement,
+  curvature: number = 0.25
+): HTMLCanvasElement {
+  if (curvature <= 0.02) return sourceCanvas;
+
+  const w = sourceCanvas.width;
+  const h = sourceCanvas.height;
+
+  const destCanvas = document.createElement('canvas');
+  destCanvas.width = w;
+  destCanvas.height = h;
+  const ctx = destCanvas.getContext('2d');
+  if (!ctx) return sourceCanvas;
+
+  // Split into 64 fine vertical strips and shift along cylindrical arc
+  const strips = 64;
+  const stripW = w / strips;
+  const maxLift = h * 0.08 * curvature;
+
+  for (let i = 0; i < strips; i++) {
+    const normX = i / strips;
+    // Parabolic/sine cylindrical deflection model
+    const deflection = Math.sin(normX * Math.PI) * maxLift;
+
+    const sx = i * stripW;
+    const sy = 0;
+    const sHeight = h;
+
+    const dx = sx;
+    const dy = -deflection / 2;
+    const dHeight = h + deflection;
+
+    ctx.drawImage(
+      sourceCanvas,
+      sx, sy, stripW, sHeight,
+      dx, dy, stripW, dHeight
+    );
+  }
+
+  return destCanvas;
+}
+
 function renderQuadSubdivision(
   ctx: CanvasRenderingContext2D,
   image: HTMLImageElement | HTMLCanvasElement,
@@ -87,9 +118,8 @@ function renderQuadSubdivision(
   h: number
 ) {
   const { topLeft: tl, topRight: tr, bottomRight: br, bottomLeft: bl } = quad;
-
-  // Subdivide quad into fine grid (8x8) for seamless homography approximation
   const steps = 8;
+
   for (let y = 0; y < steps; y++) {
     for (let x = 0; x < steps; x++) {
       const u0 = x / steps;
@@ -102,9 +132,7 @@ function renderQuadSubdivision(
       const p01 = bilinearInterpolate(tl, tr, bl, br, u0, v1);
       const p11 = bilinearInterpolate(tl, tr, bl, br, u1, v1);
 
-      // Triangle 1: p00, p10, p01 -> Rect destination
       renderTriangle(ctx, image, p00, p10, p01, u0 * w, v0 * h, u1 * w, v0 * h, u0 * w, v1 * h);
-      // Triangle 2: p10, p11, p01 -> Rect destination
       renderTriangle(ctx, image, p10, p11, p01, u1 * w, v0 * h, u1 * w, v1 * h, u0 * w, v1 * h);
     }
   }
@@ -137,7 +165,6 @@ function renderTriangle(
   ctx.closePath();
   ctx.clip();
 
-  // Compute affine transform matrix
   const denom = (s0.x * (s1.y - s2.y) + s1.x * (s2.y - s0.y) + s2.x * (s0.y - s1.y));
   if (Math.abs(denom) < 0.0001) {
     ctx.restore();

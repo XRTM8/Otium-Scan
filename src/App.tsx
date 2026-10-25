@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { CameraView } from './components/CameraView';
 import { CropView } from './components/CropView';
 import { EnhanceView } from './components/EnhanceView';
+import { LibraryModal } from './components/LibraryModal';
 import { Quad, ScannedPage, ScanStep } from './core/types';
 import { applyFilter } from './core/filters';
 import { storePageToDisk, clearScanSession } from './core/storage/pageStore';
@@ -10,6 +11,7 @@ export const App: React.FC = () => {
   const [step, setStep] = useState<ScanStep>('camera');
   const [currentRawImage, setCurrentRawImage] = useState<string>('');
   const [pages, setPages] = useState<ScannedPage[]>([]);
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
 
   // Hardware Back Button integration for Android
   useEffect(() => {
@@ -99,6 +101,7 @@ export const App: React.FC = () => {
           pagesCount={pages.length}
           lastThumbnail={lastThumb}
           onFinishBatch={() => setStep('review')}
+          onOpenLibrary={() => setIsLibraryOpen(true)}
         />
       )}
 
@@ -119,6 +122,8 @@ export const App: React.FC = () => {
           onResetAll={handleResetAll}
         />
       )}
+
+      <LibraryModal isOpen={isLibraryOpen} onClose={() => setIsLibraryOpen(false)} />
     </main>
   );
 };

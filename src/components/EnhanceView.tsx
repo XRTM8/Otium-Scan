@@ -2,7 +2,20 @@ import React, { useEffect, useState } from 'react';
 import { FilterType, ScannedPage } from '../core/types';
 import { createPdfFromCanvases } from '../core/pdf';
 import { loadPageCanvasFromDisk } from '../core/storage/pageStore';
-import { ArrowLeft, Share2, Sparkles, BookOpen, Download, Plus, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { saveDocumentToLibrary } from '../core/storage/documentLibrary';
+import { dewarpBookCurvature } from '../core/geometry';
+import {
+  ArrowLeft,
+  Share2,
+  Sparkles,
+  BookOpen,
+  Download,
+  Plus,
+  Trash2,
+  ChevronLeft,
+  ChevronRight,
+  BookA,
+} from 'lucide-react';
 
 interface EnhanceViewProps {
   pages: ScannedPage[];
@@ -20,22 +33,23 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
 }) => {
   const [currentPageIndex, setCurrentPageIndex] = useState<number>(0);
   const [activeFilter, setActiveFilter] = useState<FilterType>('magic');
+  const [curvature, setCurvature] = useState<number>(0); // 0 to 1
   const [pdfGenerating, setPdfGenerating] = useState(false);
   const [fullResPreviewUrl, setFullResPreviewUrl] = useState<string>('');
 
   const safeIndex = Math.min(currentPageIndex, Math.max(0, pages.length - 1));
   const currentPage = pages[safeIndex];
 
-  // Load preview canvas from disk whenever page changes
   useEffect(() => {
     let active = true;
     if (!currentPage) return;
 
     loadPageCanvasFromDisk(currentPage.id)
       .then((canvas) => {
-        if (active) {
-          setFullResPreviewUrl(canvas.toDataURL('image/jpeg', 0.9));
-        }
+        if (!active) return;
+        // Apply book spine curvature dewarping if requested
+        const finalCanvas = curvature > 0 ? dewarpBookCurvature(canvas, curvature) : canvas;
+        setFullResPreviewUrl(finalCanvas.toDataURL('image/jpeg', 0.9));
       })
       .catch(() => {
         if (active) {
@@ -46,7 +60,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     return () => {
       active = false;
     };
-  }, [currentPage?.id]);
+  }, [currentPage?.id, curvature]);
 
   const triggerHaptic = () => {
     if ('vibrate' in navigator) {
@@ -57,13 +71,27 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
   };
 
   const generateCompiledPdf = async (): Promise<Blob> => {
-    // Stream canvases sequentially from disk cache to keep memory usage minimal
     const canvases: HTMLCanvasElement[] = [];
     for (const page of pages) {
       const c = await loadPageCanvasFromDisk(page.id);
-      canvases.push(c);
+      const processed = curvature > 0 ? dewarpBookCurvature(c, curvature) : c;
+      canvases.push(processed);
     }
     return await createPdfFromCanvases(canvases);
+  };
+
+  const persistToLibrary = async (pdfBlob: Blob) => {
+    try {
+      await saveDocumentToLibrary({
+        id: `doc_${Date.now()}`,
+        title: `Scan — ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+        pageCount: pages.length,
+        thumbnail: pages[0].thumbnailDataUrl,
+        pdfBlob,
+      });
+    } catch (e) {
+      console.warn('Could not cache document to library:', e);
+    }
   };
 
   const handleSharePdf = async () => {
@@ -71,6 +99,8 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     setPdfGenerating(true);
     try {
       const pdfBlob = await generateCompiledPdf();
+      await persistToLibrary(pdfBlob);
+
       const filename = `Otium_Scan_${Date.now()}.pdf`;
       const pdfFile = new File([pdfBlob], filename, { type: 'application/pdf' });
 
@@ -78,13 +108,12 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
         await navigator.share({
           files: [pdfFile],
           title: 'Otium Scan Document',
-          text: `Scanned document (${pages.length} ${pages.length === 1 ? 'page' : 'pages'})`,
+          text: `Scanned document (${pages.length} pages)`,
         });
       } else {
         downloadBlob(pdfBlob, filename);
       }
-    } catch (err) {
-      console.warn('Share fallback to download:', err);
+    } catch {
       const pdfBlob = await generateCompiledPdf();
       downloadBlob(pdfBlob, `Otium_Scan_${Date.now()}.pdf`);
     } finally {
@@ -106,6 +135,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     setPdfGenerating(true);
     try {
       const pdfBlob = await generateCompiledPdf();
+      await persistToLibrary(pdfBlob);
       downloadBlob(pdfBlob, `Otium_Scan_${Date.now()}.pdf`);
     } finally {
       setPdfGenerating(false);
@@ -117,6 +147,8 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     setPdfGenerating(true);
     try {
       const pdfBlob = await generateCompiledPdf();
+      await persistToLibrary(pdfBlob);
+
       const filename = `Otium_Scan_${Date.now()}.pdf`;
       const pdfFile = new File([pdfBlob], filename, { type: 'application/pdf' });
 
@@ -190,9 +222,9 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
         </div>
       </div>
 
-      {/* Main Preview with Carousel Navigation */}
+      {/* Main Preview */}
       <div className="relative flex-1 w-full h-full flex items-center justify-center p-4 overflow-hidden">
-        <div className="relative max-w-full max-h-[64vh] rounded-xl overflow-hidden shadow-2xl border border-white/10">
+        <div className="relative max-w-full max-h-[60vh] rounded-xl overflow-hidden shadow-2xl border border-white/10">
           <img
             src={previewSource}
             alt={`Page ${safeIndex + 1}`}
@@ -225,8 +257,28 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
         )}
       </div>
 
-      {/* Bottom Controls: Filter Pills & Multi-page Actions */}
-      <div className="relative z-20 flex flex-col gap-3 px-6 pt-3 pb-12 glass-panel border-t-0">
+      {/* Bottom Controls: Filters, Book Spine Dewarp & Multi-page Actions */}
+      <div className="relative z-20 flex flex-col gap-2.5 px-6 pt-3 pb-12 glass-panel border-t-0">
+        {/* Book Spine Dewarping Toggle Slider */}
+        <div className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-xl border border-white/5 text-xs text-gray-300">
+          <div className="flex items-center gap-1.5 text-emerald-400">
+            <BookA className="w-4 h-4" />
+            <span className="font-semibold text-[11px]">Book Spine Flatten:</span>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={curvature}
+            onChange={(e) => setCurvature(parseFloat(e.target.value))}
+            className="w-32 accent-emerald-500 cursor-pointer"
+          />
+          <span className="text-[10px] text-gray-400 font-mono">
+            {Math.round(curvature * 100)}%
+          </span>
+        </div>
+
         {/* Filter Pills */}
         <div className="flex items-center justify-center gap-2">
           {(
