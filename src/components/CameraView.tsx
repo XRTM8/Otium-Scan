@@ -1,11 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Camera, Image as ImageIcon, Zap, ZapOff, RefreshCw } from 'lucide-react';
+import { Camera, Image as ImageIcon, Zap, ZapOff, CheckCheck, Layers } from 'lucide-react';
 
 interface CameraViewProps {
   onCapture: (imageDataUrl: string) => void;
+  pagesCount: number;
+  lastThumbnail?: string;
+  onFinishBatch: () => void;
 }
 
-export const CameraView: React.FC<CameraViewProps> = ({ onCapture }) => {
+export const CameraView: React.FC<CameraViewProps> = ({
+  onCapture,
+  pagesCount,
+  lastThumbnail,
+  onFinishBatch,
+}) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [torchOn, setTorchOn] = useState(false);
@@ -34,7 +42,7 @@ export const CameraView: React.FC<CameraViewProps> = ({ onCapture }) => {
         }
         setHasPermission(true);
       } catch (err) {
-        console.warn('Camera stream unavailable, fallback to file upload:', err);
+        console.warn('Camera stream fallback to upload:', err);
         setHasPermission(false);
       }
     }
@@ -73,7 +81,6 @@ export const CameraView: React.FC<CameraViewProps> = ({ onCapture }) => {
       }
     }
 
-    // Fallback if video isn't ready
     fileInputRef.current?.click();
   };
 
@@ -118,13 +125,22 @@ export const CameraView: React.FC<CameraViewProps> = ({ onCapture }) => {
           </span>
         </div>
 
-        <button
-          onClick={toggleTorch}
-          className="p-2.5 rounded-full glass-button text-gray-300 active:text-emerald-400"
-          title="Flashlight"
-        >
-          {torchOn ? <Zap className="w-5 h-5 text-emerald-400" /> : <ZapOff className="w-5 h-5" />}
-        </button>
+        <div className="flex items-center gap-3">
+          {pagesCount > 0 && (
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
+              <Layers className="w-3.5 h-3.5" />
+              <span>{pagesCount} {pagesCount === 1 ? 'Page' : 'Pages'}</span>
+            </div>
+          )}
+
+          <button
+            onClick={toggleTorch}
+            className="p-2.5 rounded-full glass-button text-gray-300 active:text-emerald-400"
+            title="Flashlight"
+          >
+            {torchOn ? <Zap className="w-5 h-5 text-emerald-400" /> : <ZapOff className="w-5 h-5" />}
+          </button>
+        </div>
       </div>
 
       {/* Main Viewfinder */}
@@ -145,16 +161,15 @@ export const CameraView: React.FC<CameraViewProps> = ({ onCapture }) => {
           </div>
         )}
 
-        {/* Viewfinder Document Framing Guide */}
-        <div className="pointer-events-none absolute inset-x-8 inset-y-16 border-2 border-emerald-500/40 rounded-2xl">
-          {/* Laser corner guides */}
+        {/* Viewfinder Framing Guide */}
+        <div className="pointer-events-none absolute inset-x-8 inset-y-16 border-2 border-emerald-500/30 rounded-2xl">
           <div className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-emerald-400 rounded-tl-lg" />
           <div className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-emerald-400 rounded-tr-lg" />
           <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-emerald-400 rounded-bl-lg" />
           <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-emerald-400 rounded-br-lg" />
 
           <div className="absolute bottom-4 inset-x-0 text-center">
-            <span className="text-xs bg-black/60 backdrop-blur-md px-3 py-1 rounded-full text-gray-300 border border-white/10">
+            <span className="text-xs bg-black/60 backdrop-blur-md px-3.5 py-1.5 rounded-full text-gray-200 border border-white/10">
               Align document inside frame
             </span>
           </div>
@@ -181,16 +196,28 @@ export const CameraView: React.FC<CameraViewProps> = ({ onCapture }) => {
           </div>
         </button>
 
-        <button
-          onClick={() => {
-            triggerHaptic();
-            window.location.reload();
-          }}
-          className="p-3.5 rounded-full glass-button text-gray-300 active:scale-90 transition-transform"
-          title="Reset"
-        >
-          <RefreshCw className="w-6 h-6 text-gray-200" />
-        </button>
+        {/* Multi-page review thumbnail or finish button */}
+        {pagesCount > 0 ? (
+          <button
+            onClick={() => {
+              triggerHaptic();
+              onFinishBatch();
+            }}
+            className="relative flex items-center justify-center w-12 h-12 rounded-2xl border-2 border-emerald-400 bg-black overflow-hidden active:scale-90 transition-transform shadow-lg"
+            title="Finish & Review"
+          >
+            {lastThumbnail ? (
+              <img src={lastThumbnail} alt="Thumbnail" className="w-full h-full object-cover" />
+            ) : (
+              <CheckCheck className="w-6 h-6 text-emerald-400" />
+            )}
+            <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 text-black text-[10px] font-bold flex items-center justify-center">
+              {pagesCount}
+            </div>
+          </button>
+        ) : (
+          <div className="w-12 h-12" />
+        )}
       </div>
 
       <input

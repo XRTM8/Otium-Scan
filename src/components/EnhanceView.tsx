@@ -1,25 +1,38 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { FilterType } from '../core/types';
+import React, { useEffect, useState } from 'react';
+import { FilterType, ScannedPage } from '../core/types';
 import { applyFilter } from '../core/filters';
-import { ArrowLeft, Share2, Sparkles, BookOpen, Download } from 'lucide-react';
+import { createPdfFromCanvases } from '../core/pdf';
+import { ArrowLeft, Share2, Sparkles, BookOpen, Download, Plus, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface EnhanceViewProps {
-  warpedCanvas: HTMLCanvasElement;
-  onBack: () => void;
-  onDone: () => void;
+  pages: ScannedPage[];
+  onBackToCamera: () => void;
+  onAddMorePages: () => void;
+  onDeletePage: (index: number) => void;
+  onUpdateFilter: (index: number, filter: FilterType, updatedCanvas: HTMLCanvasElement) => void;
+  onResetAll: () => void;
 }
 
-export const EnhanceView: React.FC<EnhanceViewProps> = ({ warpedCanvas, onBack }) => {
-  const [filter, setFilter] = useState<FilterType>('magic');
-  const [previewDataUrl, setPreviewDataUrl] = useState<string>('');
-  const [splitPos, setSplitPos] = useState<number>(50); // percentage for split comparison
-  const containerRef = useRef<HTMLDivElement | null>(null);
+export const EnhanceView: React.FC<EnhanceViewProps> = ({
+  pages,
+  onBackToCamera,
+  onAddMorePages,
+  onDeletePage,
+  onUpdateFilter,
+}) => {
+  const [currentPageIndex, setCurrentPageIndex] = useState<number>(0);
+  const [activeFilter, setActiveFilter] = useState<FilterType>('magic');
+  const [pdfGenerating, setPdfGenerating] = useState(false);
 
+  const safeIndex = Math.min(currentPageIndex, Math.max(0, pages.length - 1));
+  const currentPage = pages[safeIndex];
+
+  // Whenever filter changes, update the current page's filtered canvas
   useEffect(() => {
-    // Generate filtered result
-    const filteredCanvas = applyFilter(warpedCanvas, filter);
-    setPreviewDataUrl(filteredCanvas.toDataURL('image/jpeg', 0.92));
-  }, [warpedCanvas, filter]);
+    if (!currentPage) return;
+    const filtered = applyFilter(currentPage.warpedCanvas, activeFilter);
+    onUpdateFilter(safeIndex, activeFilter, filtered);
+  }, [activeFilter]);
 
   const triggerHaptic = () => {
     if ('vibrate' in navigator) {
@@ -29,120 +42,180 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({ warpedCanvas, onBack }
     }
   };
 
-  const handleSelectFilter = (type: FilterType) => {
+  const handleFilterChange = (filter: FilterType) => {
     triggerHaptic();
-    setFilter(type);
+    setActiveFilter(filter);
   };
 
-  const handleShare = async () => {
-    triggerHaptic();
-    try {
-      const response = await fetch(previewDataUrl);
-      const blob = await response.blob();
-      const file = new File([blob], `Otium_Scan_${Date.now()}.jpg`, { type: 'image/jpeg' });
+  const generateCompiledPdf = async (): Promise<Blob> => {
+    const canvasesToCompile = pages.map((p) => p.filteredCanvas);
+    return await createPdfFromCanvases(canvasesToCompile);
+  };
 
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+  const handleSharePdf = async () => {
+    triggerHaptic();
+    setPdfGenerating(true);
+    try {
+      const pdfBlob = await generateCompiledPdf();
+      const filename = `Otium_Scan_${Date.now()}.pdf`;
+      const pdfFile = new File([pdfBlob], filename, { type: 'application/pdf' });
+
+      if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
         await navigator.share({
-          files: [file],
-          title: 'Otium Scan',
-          text: 'Scanned with Otium Scan (Local & Private)',
+          files: [pdfFile],
+          title: 'Otium Scan Document',
+          text: `Scanned document (${pages.length} ${pages.length === 1 ? 'page' : 'pages'})`,
         });
       } else {
-        handleDownload();
+        downloadBlob(pdfBlob, filename);
       }
-    } catch {
-      handleDownload();
+    } catch (err) {
+      console.warn('Share failed, fallback to download:', err);
+      const pdfBlob = await generateCompiledPdf();
+      downloadBlob(pdfBlob, `Otium_Scan_${Date.now()}.pdf`);
+    } finally {
+      setPdfGenerating(false);
     }
   };
 
-  const handleDownload = () => {
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = previewDataUrl;
-    a.download = `Otium_Scan_${Date.now()}.jpg`;
+    a.href = url;
+    a.download = filename;
     a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  const handleOpenInOtium = () => {
+  const handleDownloadPdf = async () => {
     triggerHaptic();
-    // In Tauri mobile, we dispatch an intent to open with Otium or trigger deep link
-    window.location.href = `otium://open?source=${encodeURIComponent(previewDataUrl.slice(0, 100))}`;
-    setTimeout(() => {
-      // Fallback if Otium reader is not installed or on web
-      handleShare();
-    }, 400);
+    setPdfGenerating(true);
+    try {
+      const pdfBlob = await generateCompiledPdf();
+      downloadBlob(pdfBlob, `Otium_Scan_${Date.now()}.pdf`);
+    } finally {
+      setPdfGenerating(false);
+    }
   };
 
-  const handleSliderMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
-    setSplitPos((x / rect.width) * 100);
+  const handleOpenInOtium = async () => {
+    triggerHaptic();
+    setPdfGenerating(true);
+    try {
+      // In Tauri / mobile Android, we can share or pass content URI
+      const pdfBlob = await generateCompiledPdf();
+      const filename = `Otium_Scan_${Date.now()}.pdf`;
+      const pdfFile = new File([pdfBlob], filename, { type: 'application/pdf' });
+
+      if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+        await navigator.share({
+          files: [pdfFile],
+          title: 'Otium Document',
+        });
+      } else {
+        downloadBlob(pdfBlob, filename);
+      }
+    } finally {
+      setPdfGenerating(false);
+    }
   };
+
+  if (!currentPage) {
+    return (
+      <div className="w-full h-full bg-black flex items-center justify-center p-6 text-center">
+        <p className="text-gray-400 text-sm">No scanned pages available</p>
+      </div>
+    );
+  }
+
+  const currentPreview = currentPage.filteredCanvas.toDataURL('image/jpeg', 0.9);
 
   return (
     <div className="relative w-full h-full bg-black flex flex-col justify-between overflow-hidden select-none">
       {/* Top Bar */}
       <div className="relative z-20 flex items-center justify-between px-6 pt-12 pb-4 glass-panel border-b-0">
         <button
-          onClick={onBack}
+          onClick={onBackToCamera}
           className="p-2.5 rounded-full glass-button text-gray-300 active:text-white"
+          title="Back"
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
 
-        <span className="text-sm font-semibold tracking-wide text-gray-200">
-          Document Enhancement
-        </span>
+        <div className="flex flex-col items-center">
+          <span className="text-sm font-semibold tracking-wide text-gray-200">
+            Document Review
+          </span>
+          <span className="text-[11px] text-emerald-400 font-medium">
+            Page {safeIndex + 1} of {pages.length}
+          </span>
+        </div>
 
-        <button
-          onClick={handleShare}
-          className="p-2.5 rounded-full glass-button text-gray-300 active:text-emerald-400"
-          title="Share"
-        >
-          <Share2 className="w-5 h-5" />
-        </button>
-      </div>
+        <div className="flex items-center gap-2">
+          {pages.length > 1 && (
+            <button
+              onClick={() => {
+                triggerHaptic();
+                onDeletePage(safeIndex);
+                if (safeIndex > 0) setCurrentPageIndex(safeIndex - 1);
+              }}
+              className="p-2.5 rounded-full glass-button text-red-400 active:scale-90"
+              title="Delete this page"
+            >
+              <Trash2 className="w-5 h-5" />
+            </button>
+          )}
 
-      {/* Main Preview with Before/After Split */}
-      <div
-        ref={containerRef}
-        onPointerMove={handleSliderMove}
-        className="relative flex-1 w-full h-full flex items-center justify-center p-4 overflow-hidden touch-none"
-      >
-        <div className="relative max-w-full max-h-[68vh] rounded-lg overflow-hidden shadow-2xl border border-white/10">
-          {/* Enhanced Version (Underneath) */}
-          <img
-            src={previewDataUrl}
-            alt="Enhanced"
-            className="w-full h-full object-contain block pointer-events-none"
-          />
-
-          {/* Original Version (Clipped Over Top for Split Comparison) */}
-          <div
-            style={{ clipPath: `inset(0 ${100 - splitPos}% 0 0)` }}
-            className="absolute inset-0 overflow-hidden pointer-events-none"
+          <button
+            onClick={handleSharePdf}
+            disabled={pdfGenerating}
+            className="p-2.5 rounded-full glass-button text-gray-300 active:text-emerald-400 disabled:opacity-50"
+            title="Share PDF"
           >
-            <img
-              src={warpedCanvas.toDataURL('image/jpeg', 0.85)}
-              alt="Original raw"
-              className="w-full h-full object-contain block"
-            />
-          </div>
-
-          {/* Vertical Divider Line */}
-          <div
-            style={{ left: `${splitPos}%` }}
-            className="absolute top-0 bottom-0 w-0.5 bg-emerald-400 pointer-events-none"
-          >
-            <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-black border-2 border-emerald-400 flex items-center justify-center shadow-lg">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            </div>
-          </div>
+            <Share2 className="w-5 h-5" />
+          </button>
         </div>
       </div>
 
-      {/* Bottom Filter Controls & Otium Ecosystem Integration */}
-      <div className="relative z-20 flex flex-col gap-4 px-6 pt-4 pb-12 glass-panel border-t-0">
+      {/* Main Preview with Carousel Navigation */}
+      <div className="relative flex-1 w-full h-full flex items-center justify-center p-4 overflow-hidden">
+        <div className="relative max-w-full max-h-[64vh] rounded-xl overflow-hidden shadow-2xl border border-white/10">
+          <img
+            src={currentPreview}
+            alt={`Page ${safeIndex + 1}`}
+            className="w-full h-full object-contain block pointer-events-none"
+          />
+        </div>
+
+        {/* Previous Page arrow */}
+        {safeIndex > 0 && (
+          <button
+            onClick={() => {
+              triggerHaptic();
+              setCurrentPageIndex(safeIndex - 1);
+            }}
+            className="absolute left-4 p-3 rounded-full glass-button text-white active:scale-90 shadow-xl"
+          >
+            <ChevronLeft className="w-6 h-6" />
+          </button>
+        )}
+
+        {/* Next Page arrow */}
+        {safeIndex < pages.length - 1 && (
+          <button
+            onClick={() => {
+              triggerHaptic();
+              setCurrentPageIndex(safeIndex + 1);
+            }}
+            className="absolute right-4 p-3 rounded-full glass-button text-white active:scale-90 shadow-xl"
+          >
+            <ChevronRight className="w-6 h-6" />
+          </button>
+        )}
+      </div>
+
+      {/* Bottom Controls: Filter Pills & Multi-page Actions */}
+      <div className="relative z-20 flex flex-col gap-3 px-6 pt-3 pb-12 glass-panel border-t-0">
         {/* Filter Pills */}
         <div className="flex items-center justify-center gap-2">
           {(
@@ -153,12 +226,12 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({ warpedCanvas, onBack }
               { id: 'original', label: 'Original' },
             ] as const
           ).map((item) => {
-            const isActive = filter === item.id;
+            const isActive = activeFilter === item.id;
             return (
               <button
                 key={item.id}
-                onClick={() => handleSelectFilter(item.id)}
-                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-medium transition-all ${
+                onClick={() => handleFilterChange(item.id)}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
                   isActive
                     ? 'bg-emerald-500 text-black font-semibold shadow-md emerald-glow'
                     : 'glass-button text-gray-300'
@@ -171,22 +244,62 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({ warpedCanvas, onBack }
           })}
         </div>
 
+        {/* Multi-page Thumbnail Strip */}
+        <div className="flex items-center gap-2.5 overflow-x-auto py-1 px-1 scrollbar-none">
+          {pages.map((p, idx) => (
+            <button
+              key={p.id}
+              onClick={() => {
+                triggerHaptic();
+                setCurrentPageIndex(idx);
+              }}
+              className={`relative flex-shrink-0 w-12 h-16 rounded-lg overflow-hidden border-2 transition-all ${
+                idx === safeIndex
+                  ? 'border-emerald-400 scale-105 shadow-md'
+                  : 'border-white/20 opacity-60'
+              }`}
+            >
+              <img
+                src={p.filteredCanvas.toDataURL('image/jpeg', 0.5)}
+                alt={`Thumb ${idx + 1}`}
+                className="w-full h-full object-cover"
+              />
+              <span className="absolute bottom-0.5 right-0.5 bg-black/80 text-[9px] px-1 rounded text-white font-bold">
+                {idx + 1}
+              </span>
+            </button>
+          ))}
+
+          {/* Add more pages button */}
+          <button
+            onClick={() => {
+              triggerHaptic();
+              onAddMorePages();
+            }}
+            className="flex-shrink-0 w-12 h-16 rounded-lg border-2 border-dashed border-emerald-500/50 flex flex-col items-center justify-center text-emerald-400 active:scale-95 glass-button"
+            title="Scan another page"
+          >
+            <Plus className="w-5 h-5 mb-0.5" />
+            <span className="text-[9px] font-semibold">Add</span>
+          </button>
+        </div>
+
         {/* Action Row */}
         <div className="flex items-center gap-3 mt-1">
-          {/* Prominent "Open in Otium Reader" Integration Button */}
           <button
             onClick={handleOpenInOtium}
-            className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-emerald-500 text-black font-semibold text-sm active:scale-95 transition-transform emerald-glow shadow-lg"
+            disabled={pdfGenerating}
+            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-emerald-500 text-black font-semibold text-sm active:scale-95 transition-transform emerald-glow shadow-lg disabled:opacity-50"
           >
             <BookOpen className="w-4 h-4 stroke-[2.5]" />
             <span>Open in Otium Reader</span>
           </button>
 
-          {/* Quick Download / Export */}
           <button
-            onClick={handleDownload}
-            className="p-3.5 rounded-2xl glass-button text-gray-200 active:scale-95 transition-transform"
-            title="Download image"
+            onClick={handleDownloadPdf}
+            disabled={pdfGenerating}
+            className="p-3 rounded-2xl glass-button text-gray-200 active:scale-95 transition-transform disabled:opacity-50"
+            title="Download compiled PDF"
           >
             <Download className="w-5 h-5 text-gray-200" />
           </button>

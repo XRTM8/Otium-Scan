@@ -1,11 +1,12 @@
 import React, { useRef, useState, useCallback } from 'react';
 import { Point, Quad } from '../core/types';
 import { getDefaultQuad, warpPerspective } from '../core/geometry';
-import { Check, RotateCcw, X } from 'lucide-react';
+import { detectDocumentCorners } from '../core/edgeDetection';
+import { Check, RotateCcw, X, Wand2, RotateCw } from 'lucide-react';
 
 interface CropViewProps {
   imageSrc: string;
-  onConfirm: (croppedCanvas: HTMLCanvasElement) => void;
+  onConfirm: (warpedCanvas: HTMLCanvasElement, quad: Quad) => void;
   onCancel: () => void;
 }
 
@@ -18,14 +19,7 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
   const [activeCorner, setActiveCorner] = useState<CornerKey | null>(null);
   const [pointerPos, setPointerPos] = useState<Point | null>(null);
   const [imageSize, setImageSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
-
-  // On image load, initialize quad to 8% margin
-  const handleImageLoad = () => {
-    if (!imageRef.current) return;
-    const { naturalWidth, naturalHeight } = imageRef.current;
-    setImageSize({ width: naturalWidth, height: naturalHeight });
-    setQuad(getDefaultQuad(naturalWidth, naturalHeight));
-  };
+  const [rotation, setRotation] = useState<number>(0);
 
   const triggerHaptic = useCallback(() => {
     if ('vibrate' in navigator) {
@@ -35,31 +29,58 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
     }
   }, []);
 
+  const handleImageLoad = () => {
+    if (!imageRef.current) return;
+    const { naturalWidth, naturalHeight } = imageRef.current;
+    setImageSize({ width: naturalWidth, height: naturalHeight });
+
+    // Run auto corner detection
+    try {
+      const detected = detectDocumentCorners(imageRef.current);
+      setQuad(detected);
+    } catch {
+      setQuad(getDefaultQuad(naturalWidth, naturalHeight));
+    }
+  };
+
+  const handleAutoDetect = () => {
+    if (!imageRef.current) return;
+    triggerHaptic();
+    const detected = detectDocumentCorners(imageRef.current);
+    setQuad(detected);
+  };
+
   // Map viewport client coords to natural image coords
-  const clientToImageCoords = useCallback((clientX: number, clientY: number): Point => {
-    if (!imageRef.current) return { x: 0, y: 0 };
-    const rect = imageRef.current.getBoundingClientRect();
-    const scaleX = imageSize.width / rect.width;
-    const scaleY = imageSize.height / rect.height;
+  const clientToImageCoords = useCallback(
+    (clientX: number, clientY: number): Point => {
+      if (!imageRef.current) return { x: 0, y: 0 };
+      const rect = imageRef.current.getBoundingClientRect();
+      const scaleX = imageSize.width / rect.width;
+      const scaleY = imageSize.height / rect.height;
 
-    const imgX = Math.max(0, Math.min(imageSize.width, (clientX - rect.left) * scaleX));
-    const imgY = Math.max(0, Math.min(imageSize.height, (clientY - rect.top) * scaleY));
+      const imgX = Math.max(0, Math.min(imageSize.width, (clientX - rect.left) * scaleX));
+      const imgY = Math.max(0, Math.min(imageSize.height, (clientY - rect.top) * scaleY));
 
-    return { x: imgX, y: imgY };
-  }, [imageSize]);
+      return { x: imgX, y: imgY };
+    },
+    [imageSize]
+  );
 
   // Map natural image coords to viewport client coords
-  const imageToClientCoords = useCallback((point: Point): Point => {
-    if (!imageRef.current || imageSize.width === 0) return { x: 0, y: 0 };
-    const rect = imageRef.current.getBoundingClientRect();
-    const scaleX = rect.width / imageSize.width;
-    const scaleY = rect.height / imageSize.height;
+  const imageToClientCoords = useCallback(
+    (point: Point): Point => {
+      if (!imageRef.current || imageSize.width === 0) return { x: 0, y: 0 };
+      const rect = imageRef.current.getBoundingClientRect();
+      const scaleX = rect.width / imageSize.width;
+      const scaleY = rect.height / imageSize.height;
 
-    return {
-      x: rect.left + point.x * scaleX,
-      y: rect.top + point.y * scaleY,
-    };
-  }, [imageSize]);
+      return {
+        x: rect.left + point.x * scaleX,
+        y: rect.top + point.y * scaleY,
+      };
+    },
+    [imageSize]
+  );
 
   const handlePointerDown = (corner: CornerKey, e: React.PointerEvent) => {
     e.preventDefault();
@@ -97,11 +118,33 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
     }
   };
 
+  const handleRotate = () => {
+    triggerHaptic();
+    setRotation((r) => (r + 90) % 360);
+  };
+
   const handleApply = () => {
     if (!imageRef.current || !quad) return;
     triggerHaptic();
-    const warped = warpPerspective(imageRef.current, quad);
-    onConfirm(warped);
+
+    // If rotated, rotate source first onto a temporary canvas
+    let srcCanvas: HTMLCanvasElement | HTMLImageElement = imageRef.current;
+    if (rotation !== 0) {
+      const rotCanvas = document.createElement('canvas');
+      const is90or270 = rotation === 90 || rotation === 270;
+      rotCanvas.width = is90or270 ? imageSize.height : imageSize.width;
+      rotCanvas.height = is90or270 ? imageSize.width : imageSize.height;
+      const ctx = rotCanvas.getContext('2d');
+      if (ctx) {
+        ctx.translate(rotCanvas.width / 2, rotCanvas.height / 2);
+        ctx.rotate((rotation * Math.PI) / 180);
+        ctx.drawImage(imageRef.current, -imageSize.width / 2, -imageSize.height / 2);
+        srcCanvas = rotCanvas;
+      }
+    }
+
+    const warped = warpPerspective(srcCanvas, quad);
+    onConfirm(warped, quad);
   };
 
   const handleResetQuad = () => {
@@ -135,16 +178,32 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
         </button>
 
         <span className="text-sm font-semibold tracking-wide text-gray-200">
-          Adjust Document Boundaries
+          Document Boundary
         </span>
 
-        <button
-          onClick={handleResetQuad}
-          className="p-2.5 rounded-full glass-button text-gray-300 active:text-emerald-400"
-          title="Reset Corners"
-        >
-          <RotateCcw className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleAutoDetect}
+            className="p-2.5 rounded-full glass-button text-emerald-400 active:scale-90"
+            title="Auto Detect Corners"
+          >
+            <Wand2 className="w-5 h-5" />
+          </button>
+          <button
+            onClick={handleRotate}
+            className="p-2.5 rounded-full glass-button text-gray-300 active:scale-90"
+            title="Rotate 90 deg"
+          >
+            <RotateCw className="w-5 h-5" />
+          </button>
+          <button
+            onClick={handleResetQuad}
+            className="p-2.5 rounded-full glass-button text-gray-300 active:text-emerald-400"
+            title="Full Page"
+          >
+            <RotateCcw className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {/* Main Interactive Stage */}
@@ -154,16 +213,16 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
           src={imageSrc}
           alt="Scan target"
           onLoad={handleImageLoad}
-          className="max-w-full max-h-[75vh] object-contain rounded-lg shadow-2xl pointer-events-none"
+          style={{ transform: `rotate(${rotation}deg)` }}
+          className="max-w-full max-h-[72vh] object-contain rounded-lg shadow-2xl pointer-events-none transition-transform duration-200"
         />
 
         {/* SVG Quad Overlay */}
         {quad && (
           <svg className="fixed inset-0 w-full h-full pointer-events-none z-20">
-            {/* Shaded Document Polygon */}
             <polygon
               points={renderPolyPoints()}
-              fill="rgba(16, 185, 129, 0.15)"
+              fill="rgba(16, 185, 129, 0.18)"
               stroke="#10B981"
               strokeWidth="2.5"
               strokeDasharray="4 4"
@@ -184,7 +243,6 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
                 }}
                 className="fixed z-30 w-11 h-11 flex items-center justify-center cursor-pointer touch-none active:scale-125 transition-transform"
               >
-                {/* Visual pin point */}
                 <div className="w-5 h-5 rounded-full bg-emerald-400 border-2 border-white shadow-lg flex items-center justify-center">
                   <div className="w-1.5 h-1.5 rounded-full bg-black" />
                 </div>
@@ -202,7 +260,6 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
             }}
             className="fixed z-40 w-28 h-28 rounded-full border-2 border-emerald-400 overflow-hidden shadow-2xl bg-black pointer-events-none"
           >
-            {/* Magnified preview canvas/image */}
             <div
               style={{
                 width: '100%',
@@ -213,7 +270,6 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
                 backgroundRepeat: 'no-repeat',
               }}
             />
-            {/* Crosshair */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="w-full h-0.5 bg-emerald-400/70" />
               <div className="absolute h-full w-0.5 bg-emerald-400/70" />
@@ -225,8 +281,8 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
 
       {/* Bottom Confirm Bar */}
       <div className="relative z-30 flex items-center justify-between px-8 pt-4 pb-12 glass-panel border-t-0">
-        <span className="text-xs text-gray-400">
-          Drag pins to document corners
+        <span className="text-xs text-emerald-400 font-medium">
+          Auto-detected boundaries
         </span>
 
         <button
@@ -234,7 +290,7 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
           className="flex items-center gap-2 px-6 py-3 rounded-full bg-emerald-500 text-black font-semibold text-sm active:scale-95 transition-transform emerald-glow"
         >
           <Check className="w-4 h-4 stroke-[3]" />
-          <span>Next</span>
+          <span>Apply</span>
         </button>
       </div>
     </div>

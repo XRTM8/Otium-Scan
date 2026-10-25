@@ -12,14 +12,14 @@ export interface Quad {
 
 export type FilterType = 'magic' | 'bw' | 'grayscale' | 'original';
 
-export interface ScannedDocument {
+export interface ScannedPage {
   id: string;
-  originalImage: string; // base64 or blob URL
+  originalImage: string;
   quad: Quad;
-  croppedImage: string;
-  filteredImage: string;
+  warpedCanvas: HTMLCanvasElement;
+  filteredCanvas: HTMLCanvasElement;
   filter: FilterType;
   timestamp: number;
 }
 
-export type ScanStep = 'camera' | 'crop' | 'filter' | 'export';
+export type ScanStep = 'camera' | 'crop' | 'review';
