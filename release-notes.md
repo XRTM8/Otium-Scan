@@ -1,12 +1,33 @@
-# Otium Scan 0.1.0 — Initial Release
+# Otium Scan 0.1.0 — Initial Official Release
 
-First official release of Otium Scan, the private, distraction-free document scanner.
+The ultimate privacy-first, ultra-compact mobile document scanner companion to Otium Reader. Distributed strictly as standalone Android APKs per ABI architecture (~7MB).
 
-## Highlights
+## 🌟 Major Highlights & Super-Enterprise Features
 
-- **Instant Zero-Latency Viewfinder:** Live camera stream with document bounding frame.
-- **Precision Quad Crop:** 4-point perspective warp with floating 2.5x magnifier loupe.
-- **Magic Color Paper Filter:** Adaptive background whitening and ink sharpening.
-- **High-Contrast B&W:** Ultra-compact document thresholding.
-- **Ecosystem Integration:** Direct one-tap handoff to Otium Reader (`Open in Otium`).
-- **100% Offline & Local-First:** Zero telemetry, no cloud uploads, completely private.
+### 🎯 3D Live Computer Vision & Auto-Capture
+- **Real-Time 3D Live Quad Tracking:** High-speed frame analyzer tracks document corners on live camera stream and renders a dynamic pulsating SVG quad mesh overlay at 30fps.
+- **Tri-Condition Hands-Free Auto-Capture:** Automatically captures without touching the screen when:
+  1. Phone is level (<3.5° deviation).
+  2. Document quad is actively tracked.
+  3. Laplacian variance focus check confirms image sharpness.
+- **Mechanical Acoustic Shutter:** Synthesized SLR dual-stage mechanical shutter click using Web Audio API (100% offline, 0KB assets).
+
+### 🪪 ID Card & Passport 2-in-1 Shooting Mode
+- **Dual-Side Alignment:** Guided shooting of Front and Back sides of national IDs, driver licenses, or passports.
+- **ISO A4 Standardized Merge:** Automatically composites both sides onto a single ISO A4 document with official ISO/IEC 7810 ID-1 card proportions, rounded corners, subtle shadows, and side markers.
+
+### 🛡️ Privacy Redaction & Anti-Fraud Security
+- **Privacy Redaction / Blackout Brush:** Drag your finger over sensitive data, credit card numbers, or signatures to permanently burn `#000000` blackout censorship into pixels before export.
+- **Tiled Anti-Fraud Security Watermark Grid:** Toggle between single diagonal stamp or full-page 45° repeating banking-grade security grid.
+- **Cryptographic PIN Vault:** 4-digit PIN security hashed with SHA-256 and device-bound salt via `crypto.subtle`.
+- **Portable Encrypted Vault Backup:** 1-tap backup and restore of the entire document library via `.otiumvault` portable archive files.
+
+### ⚡ Blazing Speed & Concurrency
+- **Non-Blocking Web Worker Pipeline:** Zero-copy Transferable ArrayBuffers offload Sauvola binarization, local background illumination division (Retinex), and grayscale filters from the UI thread, ensuring butter-smooth 60/120 FPS.
+- **Ink & Stamp Color Preservation:** Automatically isolates high-saturation ink (blue ballpoint signatures, red official notary stamps) and deepens text while whitening paper to pure `#FFFFFF`.
+- **Hardware-Accelerated QR & Barcode Detection:** Instant barcode recognition on invoices and shipping labels with 1-tap Copy and Open actions.
+
+### 📲 Mobile OS Integration
+- **Android Native Share Sheet:** 1-tap sharing of compiled PDF documents and single-page JPG images directly to WhatsApp, Gmail, Telegram, and Google Drive.
+- **Per-ABI Split APKs:** Distributed strictly as independent architecture packages (`arm64-v8a`, `armeabi-v7a`, `x86_64`) for ultra-compact ~7MB install size.
+- **Ecosystem Integration:** Instant handoff to Otium Reader.
