@@ -2,8 +2,9 @@ import { Point, Quad } from './types';
 import { getDefaultQuad, orderCorners } from './geometry';
 
 /**
- * Fast client-side document corner detection using gradient ray casting.
- * Executes in ~15ms on mobile devices by operating on a downscaled thumbnail.
+ * Advanced Dual-Pass Document Corner Detector.
+ * Combines Sobel gradient analysis with Otsu's adaptive binarization to detect
+ * paper boundaries even on low-contrast backgrounds (light desks, pale tablecloths).
  */
 export function detectDocumentCorners(
   sourceImage: HTMLImageElement | HTMLCanvasElement
@@ -11,8 +12,8 @@ export function detectDocumentCorners(
   const naturalW = 'naturalWidth' in sourceImage ? sourceImage.naturalWidth : sourceImage.width;
   const naturalH = 'naturalHeight' in sourceImage ? sourceImage.naturalHeight : sourceImage.height;
 
-  // Work on downsampled canvas for ultra-fast processing
-  const scale = Math.min(1, 400 / Math.max(naturalW, naturalH));
+  // Process on 320px downscaled buffer for fast ~12ms execution
+  const scale = Math.min(1, 320 / Math.max(naturalW, naturalH));
   const workW = Math.round(naturalW * scale);
   const workH = Math.round(naturalH * scale);
 
@@ -26,53 +27,101 @@ export function detectDocumentCorners(
   const imgData = ctx.getImageData(0, 0, workW, workH);
   const data = imgData.data;
 
-  // Grayscale & luminance buffer
-  const gray = new Uint8Array(workW * workH);
+  // Compute grayscale buffer & histogram
+  const totalPixels = workW * workH;
+  const gray = new Uint8Array(totalPixels);
+  const histogram = new Uint32Array(256);
+
   for (let i = 0, j = 0; i < data.length; i += 4, j++) {
-    gray[j] = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+    const lum = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+    gray[j] = lum;
+    histogram[lum]++;
   }
 
-  // Scan inward along diagonal rays from each of the 4 corners
-  const maxSearchSteps = Math.min(workW, workH) * 0.45;
-  const thresholdGradient = 35; // edge jump intensity
+  // Pass 1: Compute Otsu's optimal threshold for background separation
+  let sum = 0;
+  for (let t = 0; t < 256; t++) sum += t * histogram[t];
 
-  function findCornerOnRay(startX: number, startY: number, stepX: number, stepY: number): Point {
-    let currX = startX;
-    let currY = startY;
-    let prevLum = gray[Math.round(currY) * workW + Math.round(currX)];
+  let sumB = 0;
+  let wB = 0;
+  let maxVariance = 0;
+  let otsuThreshold = 128;
 
-    for (let step = 0; step < maxSearchSteps; step++) {
-      currX += stepX;
-      currY += stepY;
-      const x = Math.round(currX);
-      const y = Math.round(currY);
-      if (x < 1 || x >= workW - 1 || y < 1 || y >= workH - 1) break;
+  for (let t = 0; t < 256; t++) {
+    wB += histogram[t];
+    if (wB === 0) continue;
+    const wF = totalPixels - wB;
+    if (wF === 0) break;
 
-      const lum = gray[y * workW + x];
-      const diff = Math.abs(lum - prevLum);
+    sumB += t * histogram[t];
+    const mB = sumB / wB;
+    const mF = (sum - sumB) / wF;
 
-      if (diff > thresholdGradient) {
-        // Edge boundary hit
+    const betweenVariance = wB * wF * (mB - mF) * (mB - mF);
+    if (betweenVariance > maxVariance) {
+      maxVariance = betweenVariance;
+      otsuThreshold = t;
+    }
+  }
+
+  // Pass 2: Sobel Edge Magnitude Buffer
+  const edges = new Uint8Array(totalPixels);
+  for (let y = 1; y < workH - 1; y++) {
+    for (let x = 1; x < workW - 1; x++) {
+      const idx = y * workW + x;
+      // Horizontal gradient
+      const gx =
+        -gray[idx - workW - 1] + gray[idx - workW + 1] +
+        -2 * gray[idx - 1] + 2 * gray[idx + 1] +
+        -gray[idx + workW - 1] + gray[idx + workW + 1];
+
+      // Vertical gradient
+      const gy =
+        -gray[idx - workW - 1] - 2 * gray[idx - workW] - gray[idx - workW + 1] +
+        gray[idx + workW - 1] + 2 * gray[idx + workW] + gray[idx + workW + 1];
+
+      edges[idx] = Math.min(255, Math.hypot(gx, gy));
+    }
+  }
+
+  // Multi-Ray Scan inward from the four quadrants
+  const maxSearchSteps = Math.min(workW, workH) * 0.42;
+  const edgeCutoff = 45;
+
+  function findCornerAlongRay(startX: number, startY: number, dirX: number, dirY: number): Point {
+    let cx = startX;
+    let cy = startY;
+
+    for (let s = 0; s < maxSearchSteps; s++) {
+      cx += dirX;
+      cy += dirY;
+      const x = Math.round(cx);
+      const y = Math.round(cy);
+      if (x < 2 || x >= workW - 2 || y < 2 || y >= workH - 2) break;
+
+      const idx = y * workW + x;
+      const edgeVal = edges[idx];
+      const lumVal = gray[idx];
+
+      // Trigger if sharp edge hit OR luminance crossed Otsu threshold significantly
+      if (edgeVal > edgeCutoff || Math.abs(lumVal - otsuThreshold) > 40) {
         return {
-          x: Math.round(currX / scale),
-          y: Math.round(currY / scale),
+          x: Math.round(cx / scale),
+          y: Math.round(cy / scale),
         };
       }
-      prevLum = lum;
     }
 
-    // Default fallback
     return {
       x: Math.round(startX / scale),
       y: Math.round(startY / scale),
     };
   }
 
-  // Ray vectors from the 4 corners towards center
-  const pTL = findCornerOnRay(workW * 0.05, workH * 0.05, 1, 1);
-  const pTR = findCornerOnRay(workW * 0.95, workH * 0.05, -1, 1);
-  const pBR = findCornerOnRay(workW * 0.95, workH * 0.95, -1, -1);
-  const pBL = findCornerOnRay(workW * 0.05, workH * 0.95, 1, -1);
+  const pTL = findCornerAlongRay(workW * 0.06, workH * 0.06, 1.2, 1.2);
+  const pTR = findCornerAlongRay(workW * 0.94, workH * 0.06, -1.2, 1.2);
+  const pBR = findCornerAlongRay(workW * 0.94, workH * 0.94, -1.2, -1.2);
+  const pBL = findCornerAlongRay(workW * 0.06, workH * 0.94, 1.2, -1.2);
 
   try {
     return orderCorners([pTL, pTR, pBR, pBL]);

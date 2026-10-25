@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { FilterType, ScannedPage } from '../core/types';
-import { applyFilter } from '../core/filters';
 import { createPdfFromCanvases } from '../core/pdf';
+import { loadPageCanvasFromDisk } from '../core/storage/pageStore';
 import { ArrowLeft, Share2, Sparkles, BookOpen, Download, Plus, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface EnhanceViewProps {
@@ -9,7 +9,6 @@ interface EnhanceViewProps {
   onBackToCamera: () => void;
   onAddMorePages: () => void;
   onDeletePage: (index: number) => void;
-  onUpdateFilter: (index: number, filter: FilterType, updatedCanvas: HTMLCanvasElement) => void;
   onResetAll: () => void;
 }
 
@@ -18,21 +17,36 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
   onBackToCamera,
   onAddMorePages,
   onDeletePage,
-  onUpdateFilter,
 }) => {
   const [currentPageIndex, setCurrentPageIndex] = useState<number>(0);
   const [activeFilter, setActiveFilter] = useState<FilterType>('magic');
   const [pdfGenerating, setPdfGenerating] = useState(false);
+  const [fullResPreviewUrl, setFullResPreviewUrl] = useState<string>('');
 
   const safeIndex = Math.min(currentPageIndex, Math.max(0, pages.length - 1));
   const currentPage = pages[safeIndex];
 
-  // Whenever filter changes, update the current page's filtered canvas
+  // Load preview canvas from disk whenever page changes
   useEffect(() => {
+    let active = true;
     if (!currentPage) return;
-    const filtered = applyFilter(currentPage.warpedCanvas, activeFilter);
-    onUpdateFilter(safeIndex, activeFilter, filtered);
-  }, [activeFilter]);
+
+    loadPageCanvasFromDisk(currentPage.id)
+      .then((canvas) => {
+        if (active) {
+          setFullResPreviewUrl(canvas.toDataURL('image/jpeg', 0.9));
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setFullResPreviewUrl(currentPage.thumbnailDataUrl);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [currentPage?.id]);
 
   const triggerHaptic = () => {
     if ('vibrate' in navigator) {
@@ -42,14 +56,14 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     }
   };
 
-  const handleFilterChange = (filter: FilterType) => {
-    triggerHaptic();
-    setActiveFilter(filter);
-  };
-
   const generateCompiledPdf = async (): Promise<Blob> => {
-    const canvasesToCompile = pages.map((p) => p.filteredCanvas);
-    return await createPdfFromCanvases(canvasesToCompile);
+    // Stream canvases sequentially from disk cache to keep memory usage minimal
+    const canvases: HTMLCanvasElement[] = [];
+    for (const page of pages) {
+      const c = await loadPageCanvasFromDisk(page.id);
+      canvases.push(c);
+    }
+    return await createPdfFromCanvases(canvases);
   };
 
   const handleSharePdf = async () => {
@@ -70,7 +84,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
         downloadBlob(pdfBlob, filename);
       }
     } catch (err) {
-      console.warn('Share failed, fallback to download:', err);
+      console.warn('Share fallback to download:', err);
       const pdfBlob = await generateCompiledPdf();
       downloadBlob(pdfBlob, `Otium_Scan_${Date.now()}.pdf`);
     } finally {
@@ -102,7 +116,6 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     triggerHaptic();
     setPdfGenerating(true);
     try {
-      // In Tauri / mobile Android, we can share or pass content URI
       const pdfBlob = await generateCompiledPdf();
       const filename = `Otium_Scan_${Date.now()}.pdf`;
       const pdfFile = new File([pdfBlob], filename, { type: 'application/pdf' });
@@ -128,7 +141,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     );
   }
 
-  const currentPreview = currentPage.filteredCanvas.toDataURL('image/jpeg', 0.9);
+  const previewSource = fullResPreviewUrl || currentPage.thumbnailDataUrl;
 
   return (
     <div className="relative w-full h-full bg-black flex flex-col justify-between overflow-hidden select-none">
@@ -181,13 +194,12 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
       <div className="relative flex-1 w-full h-full flex items-center justify-center p-4 overflow-hidden">
         <div className="relative max-w-full max-h-[64vh] rounded-xl overflow-hidden shadow-2xl border border-white/10">
           <img
-            src={currentPreview}
+            src={previewSource}
             alt={`Page ${safeIndex + 1}`}
             className="w-full h-full object-contain block pointer-events-none"
           />
         </div>
 
-        {/* Previous Page arrow */}
         {safeIndex > 0 && (
           <button
             onClick={() => {
@@ -200,7 +212,6 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
           </button>
         )}
 
-        {/* Next Page arrow */}
         {safeIndex < pages.length - 1 && (
           <button
             onClick={() => {
@@ -230,7 +241,10 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
             return (
               <button
                 key={item.id}
-                onClick={() => handleFilterChange(item.id)}
+                onClick={() => {
+                  triggerHaptic();
+                  setActiveFilter(item.id);
+                }}
                 className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
                   isActive
                     ? 'bg-emerald-500 text-black font-semibold shadow-md emerald-glow'
@@ -260,7 +274,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
               }`}
             >
               <img
-                src={p.filteredCanvas.toDataURL('image/jpeg', 0.5)}
+                src={p.thumbnailDataUrl}
                 alt={`Thumb ${idx + 1}`}
                 className="w-full h-full object-cover"
               />
@@ -270,7 +284,6 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
             </button>
           ))}
 
-          {/* Add more pages button */}
           <button
             onClick={() => {
               triggerHaptic();

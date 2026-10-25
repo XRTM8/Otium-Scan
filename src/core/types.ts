@@ -14,10 +14,8 @@ export type FilterType = 'magic' | 'bw' | 'grayscale' | 'original';
 
 export interface ScannedPage {
   id: string;
-  originalImage: string;
+  thumbnailDataUrl: string;
   quad: Quad;
-  warpedCanvas: HTMLCanvasElement;
-  filteredCanvas: HTMLCanvasElement;
   filter: FilterType;
   timestamp: number;
 }

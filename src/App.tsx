@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { CameraView } from './components/CameraView';
 import { CropView } from './components/CropView';
 import { EnhanceView } from './components/EnhanceView';
-import { FilterType, Quad, ScannedPage, ScanStep } from './core/types';
+import { Quad, ScannedPage, ScanStep } from './core/types';
 import { applyFilter } from './core/filters';
+import { storePageToDisk, clearScanSession } from './core/storage/pageStore';
 
 export const App: React.FC = () => {
   const [step, setStep] = useState<ScanStep>('camera');
@@ -36,16 +37,23 @@ export const App: React.FC = () => {
     setStep('crop');
   };
 
-  const handleCropConfirm = (warpedCanvas: HTMLCanvasElement, quad: Quad) => {
-    // Generate default filtered canvas (Magic Color)
+  const handleCropConfirm = async (warpedCanvas: HTMLCanvasElement, quad: Quad) => {
+    const pageId = `page_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const filteredCanvas = applyFilter(warpedCanvas, 'magic');
 
-    const newPage: ScannedPage = {
-      id: `page_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      originalImage: currentRawImage,
-      quad,
+    // Persist full-res raw & filtered buffers to disk storage to avoid mobile OOM
+    const thumbnailDataUrl = await storePageToDisk(
+      pageId,
+      currentRawImage,
       warpedCanvas,
       filteredCanvas,
+      'magic'
+    );
+
+    const newPage: ScannedPage = {
+      id: pageId,
+      thumbnailDataUrl,
+      quad,
       filter: 'magic',
       timestamp: Date.now(),
     };
@@ -74,30 +82,14 @@ export const App: React.FC = () => {
     });
   };
 
-  const handleUpdateFilter = (index: number, filter: FilterType, updatedCanvas: HTMLCanvasElement) => {
-    setPages((prev) =>
-      prev.map((p, i) =>
-        i === index
-          ? {
-              ...p,
-              filter,
-              filteredCanvas: updatedCanvas,
-            }
-          : p
-      )
-    );
-  };
-
-  const handleResetAll = () => {
+  const handleResetAll = async () => {
+    await clearScanSession();
     setPages([]);
     setCurrentRawImage('');
     setStep('camera');
   };
 
-  const lastThumb =
-    pages.length > 0
-      ? pages[pages.length - 1].filteredCanvas.toDataURL('image/jpeg', 0.5)
-      : undefined;
+  const lastThumb = pages.length > 0 ? pages[pages.length - 1].thumbnailDataUrl : undefined;
 
   return (
     <main className="fixed inset-0 w-screen h-screen overflow-hidden bg-black select-none">
@@ -124,7 +116,6 @@ export const App: React.FC = () => {
           onBackToCamera={() => setStep('camera')}
           onAddMorePages={handleAddMorePages}
           onDeletePage={handleDeletePage}
-          onUpdateFilter={handleUpdateFilter}
           onResetAll={handleResetAll}
         />
       )}
