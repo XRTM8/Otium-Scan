@@ -4,7 +4,7 @@ import { CropView } from './components/CropView';
 import { EnhanceView } from './components/EnhanceView';
 import { LibraryModal } from './components/LibraryModal';
 import { Quad, ScannedPage, ScanStep } from './core/types';
-import { applyFilter } from './core/filters';
+import { applyFilterAsync } from './core/filters';
 import {
   storePageToDisk,
   clearScanSession,
@@ -74,7 +74,7 @@ export const App: React.FC = () => {
       const targetHeight = Math.min(3200, Math.max(1000, Math.round(maxHeight)));
 
       const warpedCanvas = warpPerspective(canvas, quad, targetWidth, targetHeight);
-      const filteredCanvas = applyFilter(warpedCanvas, 'magic');
+      const filteredCanvas = await applyFilterAsync(warpedCanvas, 'magic');
 
       const pageId = `page_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
       const thumbnailDataUrl = await storePageToDisk(
@@ -100,7 +100,7 @@ export const App: React.FC = () => {
 
   const handleCropConfirm = async (warpedCanvas: HTMLCanvasElement, quad: Quad) => {
     const pageId = `page_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const filteredCanvas = applyFilter(warpedCanvas, 'magic');
+    const filteredCanvas = await applyFilterAsync(warpedCanvas, 'magic');
 
     // Persist full-res raw & filtered buffers to disk storage to avoid mobile OOM
     const thumbnailDataUrl = await storePageToDisk(

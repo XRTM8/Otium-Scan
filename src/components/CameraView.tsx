@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Camera,
   Image as ImageIcon,
@@ -7,7 +7,9 @@ import {
   CheckCheck,
   FolderArchive,
   ScanLine,
+  Sparkles,
 } from 'lucide-react';
+import { playShutterSound } from '../core/audio';
 
 interface CameraViewProps {
   onCapture: (imageDataUrl: string, isBatchMode: boolean) => void;
@@ -31,6 +33,8 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const [scanMode, setScanMode] = useState<'single' | 'batch'>('batch'); // default to fast batch
   const [capturing, setCapturing] = useState(false);
   const [flashAnimation, setFlashAnimation] = useState(false);
+  const [autoCaptureEnabled, setAutoCaptureEnabled] = useState(false);
+  const [autoCaptureProgress, setAutoCaptureProgress] = useState(0);
   const [tilt, setTilt] = useState<{ x: number; y: number; isLevel: boolean }>({
     x: 0,
     y: 0,
@@ -97,9 +101,10 @@ export const CameraView: React.FC<CameraViewProps> = ({
     }
   };
 
-  const handleCapture = async () => {
+  const handleCapture = useCallback(async () => {
     if (capturing) return;
-    triggerHaptic(30);
+    triggerHaptic(35);
+    playShutterSound();
     setCapturing(true);
 
     // Trigger visual shutter flash
@@ -153,7 +158,34 @@ export const CameraView: React.FC<CameraViewProps> = ({
     } finally {
       setCapturing(false);
     }
-  };
+  }, [capturing, onCapture, scanMode, stream]);
+
+  // Hands-Free Auto-Capture Monitor: Triggers snap when document is steady & level
+  useEffect(() => {
+    if (!autoCaptureEnabled || capturing) {
+      setAutoCaptureProgress(0);
+      return;
+    }
+
+    let interval: ReturnType<typeof setInterval> | null = null;
+    if (tilt.isLevel) {
+      interval = setInterval(() => {
+        setAutoCaptureProgress((prev) => {
+          if (prev >= 100) {
+            handleCapture();
+            return 0;
+          }
+          return prev + 14; // ~450ms smooth countdown
+        });
+      }, 50);
+    } else {
+      setAutoCaptureProgress(0);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [autoCaptureEnabled, tilt.isLevel, capturing, handleCapture]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -242,6 +274,23 @@ export const CameraView: React.FC<CameraViewProps> = ({
             </button>
           </div>
 
+          {/* Hands-Free Auto Capture Toggle */}
+          <button
+            onClick={() => {
+              triggerHaptic(15);
+              setAutoCaptureEnabled(!autoCaptureEnabled);
+            }}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-all ${
+              autoCaptureEnabled
+                ? 'bg-emerald-500 text-black shadow-md shadow-emerald-500/30'
+                : 'glass-button text-gray-300'
+            }`}
+            title="Hands-Free Auto Capture (snaps automatically when steady)"
+          >
+            <Sparkles className="w-3 h-3" />
+            <span>Auto</span>
+          </button>
+
           <button
             onClick={toggleTorch}
             className="p-2 rounded-full glass-button text-gray-300 active:text-emerald-400"
@@ -324,12 +373,28 @@ export const CameraView: React.FC<CameraViewProps> = ({
           <ImageIcon className="w-6 h-6 text-gray-200" />
         </button>
 
-        {/* Tactile Shutter Button */}
+        {/* Tactile Shutter Button with Auto-Capture Progress Ring */}
         <button
           onClick={handleCapture}
           disabled={capturing}
           className="relative flex items-center justify-center w-20 h-20 rounded-full border-4 border-emerald-500/30 p-1 active:scale-95 transition-transform disabled:opacity-50"
+          title={autoCaptureEnabled ? 'Auto-capture enabled (holding phone steady will snap automatically)' : 'Tap to capture'}
         >
+          {autoCaptureEnabled && (
+            <svg className="absolute -inset-1 w-[88px] h-[88px] -rotate-90 pointer-events-none" viewBox="0 0 88 88">
+              <circle
+                cx="44"
+                cy="44"
+                r="39"
+                fill="none"
+                stroke="#10b981"
+                strokeWidth="4"
+                strokeDasharray={245}
+                strokeDashoffset={245 - (245 * autoCaptureProgress) / 100}
+                className="transition-all duration-75"
+              />
+            </svg>
+          )}
           <div className="w-full h-full rounded-full bg-emerald-500 emerald-glow flex items-center justify-center shadow-lg">
             <div className={`w-7 h-7 rounded-full bg-white/20 ${capturing ? 'animate-ping' : ''}`} />
           </div>

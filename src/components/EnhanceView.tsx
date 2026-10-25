@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { FilterType, ScannedPage } from '../core/types';
 import { createPdfFromCanvases, PdfCompressionPreset, PdfPageFormat, PdfPageInput } from '../core/pdf';
-import { loadPageCanvasFromDisk } from '../core/storage/pageStore';
+import { loadPageCanvasFromDisk, updateStoredPageFilter } from '../core/storage/pageStore';
 import { saveDocumentToLibrary } from '../core/storage/documentLibrary';
 import { dewarpBookCurvature } from '../core/geometry';
 import { performOcr } from '../core/ocr/ocrEngine';
+import { detectBarcodesFromCanvas, DetectedBarcode } from '../core/barcode';
 import { SignatureModal } from './SignatureModal';
 import {
   ArrowLeft,
@@ -23,6 +24,14 @@ import {
   Edit3,
   PenTool,
   CheckCircle2,
+  LayoutGrid,
+  Stamp,
+  Image as ImageIcon,
+  CheckSquare,
+  Square,
+  QrCode,
+  Copy,
+  ExternalLink,
 } from 'lucide-react';
 
 interface EnhanceViewProps {
@@ -54,10 +63,15 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
   const [pageFormat, setPageFormat] = useState<PdfPageFormat>('a4');
   const [isSignatureOpen, setIsSignatureOpen] = useState(false);
   const [signatures, setSignatures] = useState<Record<number, { dataUrl: string; x: number; y: number }>>({});
+  const [isGridView, setIsGridView] = useState(false);
+  const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
+  const [watermarkText, setWatermarkText] = useState<string>('');
+  const [isWatermarkOpen, setIsWatermarkOpen] = useState(false);
   const [toastMsg, setToastMsg] = useState<string>('');
   const [pdfGenerating, setPdfGenerating] = useState(false);
   const [ocrStatus, setOcrStatus] = useState<string>('');
   const [fullResPreviewUrl, setFullResPreviewUrl] = useState<string>('');
+  const [detectedBarcodes, setDetectedBarcodes] = useState<DetectedBarcode[]>([]);
   const [docTitle, setDocTitle] = useState<string>(() => {
     const d = new Date();
     const dateStr = d.toISOString().slice(0, 10);
@@ -78,10 +92,16 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
         if (!active) return;
         const finalCanvas = curvature > 0 ? dewarpBookCurvature(canvas, curvature, spinePos) : canvas;
         setFullResPreviewUrl(finalCanvas.toDataURL('image/jpeg', 0.9));
+
+        // Background Barcode & QR Code Intelligence
+        detectBarcodesFromCanvas(finalCanvas).then((codes) => {
+          if (active) setDetectedBarcodes(codes);
+        });
       })
       .catch(() => {
         if (active) {
           setFullResPreviewUrl(currentPage.thumbnailDataUrl);
+          setDetectedBarcodes([]);
         }
       });
 
@@ -95,6 +115,79 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
       try {
         navigator.vibrate(duration);
       } catch {}
+    }
+  };
+
+  const handleFilterSelect = async (newFilter: FilterType) => {
+    triggerHaptic(10);
+    setActiveFilter(newFilter);
+    try {
+      await updateStoredPageFilter(currentPage.id, newFilter);
+      const canvas = await loadPageCanvasFromDisk(currentPage.id);
+      const finalCanvas = curvature > 0 ? dewarpBookCurvature(canvas, curvature, spinePos) : canvas;
+      setFullResPreviewUrl(finalCanvas.toDataURL('image/jpeg', 0.9));
+    } catch (e) {
+      console.warn('Filter update failed:', e);
+    }
+  };
+
+  const handleApplyFilterToAll = async () => {
+    triggerHaptic(15);
+    setToastMsg(`Applying ${activeFilter} to all pages...`);
+    for (const p of pages) {
+      await updateStoredPageFilter(p.id, activeFilter);
+    }
+    const canvas = await loadPageCanvasFromDisk(currentPage.id);
+    const finalCanvas = curvature > 0 ? dewarpBookCurvature(canvas, curvature, spinePos) : canvas;
+    setFullResPreviewUrl(finalCanvas.toDataURL('image/jpeg', 0.9));
+    setToastMsg(`Applied ${activeFilter} to all pages`);
+    setTimeout(() => setToastMsg(''), 2200);
+  };
+
+  const handleTogglePageSelect = (idx: number) => {
+    triggerHaptic(10);
+    setSelectedPages((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedPages.size === 0) return;
+    triggerHaptic(20);
+    const indices = Array.from(selectedPages).sort((a, b) => b - a);
+    indices.forEach((idx) => onDeletePage(idx));
+    setSelectedPages(new Set());
+    setToastMsg(`Deleted ${indices.length} pages`);
+    setTimeout(() => setToastMsg(''), 2200);
+  };
+
+  const handleDownloadJpg = async () => {
+    triggerHaptic(20);
+    try {
+      const rawCanvas = await loadPageCanvasFromDisk(currentPage.id);
+      const processed = curvature > 0 ? dewarpBookCurvature(rawCanvas, curvature, spinePos) : rawCanvas;
+      const filename = `${docTitle.trim() || 'Otium_Scan'}_Page_${safeIndex + 1}.jpg`;
+      const blob = await new Promise<Blob | null>((res) => processed.toBlob(res, 'image/jpeg', 0.92));
+      if (!blob) return;
+
+      const jpgFile = new File([blob], filename, { type: 'image/jpeg' });
+      if (navigator.canShare && navigator.canShare({ files: [jpgFile] })) {
+        await navigator.share({
+          files: [jpgFile],
+          title: filename,
+          text: `Page ${safeIndex + 1} from ${docTitle.trim() || 'Otium Scan'}`,
+        });
+        setToastMsg(`Shared Page ${safeIndex + 1}`);
+      } else {
+        downloadBlob(blob, filename);
+        setToastMsg(`Page ${safeIndex + 1} saved as JPG`);
+      }
+      setTimeout(() => setToastMsg(''), 2200);
+    } catch (e) {
+      console.warn('JPG export failed:', e);
     }
   };
 
@@ -138,7 +231,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     }
 
     setOcrStatus('');
-    return await createPdfFromCanvases(pageInputs, compressionPreset, pageFormat);
+    return await createPdfFromCanvases(pageInputs, compressionPreset, pageFormat, watermarkText);
   };
 
   const handleRotateCurrentPage = async () => {
@@ -291,14 +384,42 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          {/* Grid Overview Toggle */}
+          <button
+            onClick={() => {
+              triggerHaptic(15);
+              setIsGridView(!isGridView);
+            }}
+            className={`p-2 rounded-full glass-button transition-colors ${
+              isGridView ? 'text-emerald-400 border-emerald-500/50 bg-emerald-500/10' : 'text-gray-300 active:text-emerald-400'
+            }`}
+            title="Grid Overview"
+          >
+            <LayoutGrid className="w-4 h-4" />
+          </button>
+
+          {/* Security Watermark */}
+          <button
+            onClick={() => {
+              triggerHaptic(15);
+              setIsWatermarkOpen(true);
+            }}
+            className={`p-2 rounded-full glass-button transition-colors ${
+              watermarkText ? 'text-emerald-400 border-emerald-500/50 bg-emerald-500/10' : 'text-gray-300 active:text-emerald-400'
+            }`}
+            title="Add Security Watermark"
+          >
+            <Stamp className="w-4 h-4" />
+          </button>
+
           {/* Sign Document */}
           <button
             onClick={() => {
               triggerHaptic(15);
               setIsSignatureOpen(true);
             }}
-            className={`p-2.5 rounded-full glass-button transition-colors ${
+            className={`p-2 rounded-full glass-button transition-colors ${
               signatures[safeIndex] ? 'text-emerald-400 border-emerald-500/50' : 'text-gray-300 active:text-emerald-400'
             }`}
             title="Sign this document"
@@ -309,7 +430,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
           {/* Rotate 90° Clockwise */}
           <button
             onClick={handleRotateCurrentPage}
-            className="p-2.5 rounded-full glass-button text-gray-300 active:text-emerald-400"
+            className="p-2 rounded-full glass-button text-gray-300 active:text-emerald-400"
             title="Rotate 90° Clockwise"
           >
             <RotateCw className="w-4 h-4" />
@@ -321,7 +442,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
               triggerHaptic(15);
               onRetakePage(safeIndex);
             }}
-            className="p-2.5 rounded-full glass-button text-gray-300 active:text-emerald-400"
+            className="p-2 rounded-full glass-button text-gray-300 active:text-emerald-400"
             title="Retake this photo"
           >
             <RotateCcw className="w-4 h-4" />
@@ -334,7 +455,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
                 onDeletePage(safeIndex);
                 if (safeIndex > 0) setCurrentPageIndex(safeIndex - 1);
               }}
-              className="p-2.5 rounded-full glass-button text-red-400 active:scale-90"
+              className="p-2 rounded-full glass-button text-red-400 active:scale-90"
               title="Delete this page"
             >
               <Trash2 className="w-4 h-4" />
@@ -344,98 +465,238 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
           <button
             onClick={handleSharePdf}
             disabled={pdfGenerating}
-            className="p-2.5 rounded-full glass-button text-gray-300 active:text-emerald-400 disabled:opacity-50"
+            className="p-2 rounded-full glass-button text-gray-300 active:text-emerald-400 disabled:opacity-50"
             title="Share PDF"
           >
-            <Share2 className="w-5 h-5" />
+            <Share2 className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      {/* Main Preview with Carousel Navigation */}
-      <div className="relative flex-1 w-full h-full flex items-center justify-center p-4 overflow-hidden">
-        {toastMsg && (
-          <div className="absolute top-4 inset-x-0 flex justify-center z-40 pointer-events-none animate-in fade-in duration-200">
-            <span className="px-4 py-1.5 rounded-full bg-emerald-500 text-black font-semibold text-xs shadow-2xl flex items-center gap-1.5 border border-white/20">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>{toastMsg}</span>
+      {/* Main Stage: Carousel View or Grid Overview Sheet */}
+      {isGridView ? (
+        <div className="relative flex-1 w-full h-full flex flex-col p-4 overflow-y-auto">
+          {/* Grid Toolbar */}
+          <div className="flex items-center justify-between mb-3 px-1">
+            <span className="text-xs text-gray-400 font-semibold">
+              {pages.length} Pages • {selectedPages.size} Selected
             </span>
-          </div>
-        )}
 
-        <div className="relative max-w-full max-h-[54vh] rounded-xl overflow-hidden shadow-2xl border border-white/10">
-          <img
-            src={previewSource}
-            alt={`Page ${safeIndex + 1}`}
-            className="w-full h-full object-contain block pointer-events-none"
-          />
+            <div className="flex items-center gap-2">
+              {selectedPages.size > 0 && (
+                <button
+                  onClick={handleBulkDelete}
+                  className="px-3 py-1.5 rounded-xl bg-red-500/20 text-red-400 font-semibold text-xs border border-red-500/30 flex items-center gap-1 active:scale-95"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete ({selectedPages.size})</span>
+                </button>
+              )}
 
-          {/* Attached Digital Signature */}
-          {signatures[safeIndex] && (
-            <div
-              style={{
-                left: `${signatures[safeIndex].x * 100}%`,
-                top: `${signatures[safeIndex].y * 100}%`,
-              }}
-              className="absolute z-20 w-32 -translate-x-1/2 -translate-y-1/2 p-1.5 border-2 border-dashed border-emerald-400 bg-emerald-500/10 rounded-xl shadow-2xl flex items-center justify-center group"
-            >
-              <img
-                src={signatures[safeIndex].dataUrl}
-                alt="Signature"
-                className="w-full h-auto object-contain pointer-events-none"
-              />
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  triggerHaptic(10);
-                  setSignatures((prev) => {
-                    const next = { ...prev };
-                    delete next[safeIndex];
-                    return next;
-                  });
-                }}
-                className="absolute -top-2.5 -right-2.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-xs font-bold shadow-md active:scale-90"
-                title="Remove signature"
+                onClick={() => setIsGridView(false)}
+                className="px-3.5 py-1.5 rounded-xl bg-emerald-500 text-black font-bold text-xs emerald-glow active:scale-95"
               >
-                ✕
+                Done
               </button>
             </div>
-          )}
+          </div>
 
-          {pdfGenerating && (
-            <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center z-30">
-              <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-3" />
-              <p className="text-sm font-semibold text-white">
-                {ocrStatus || 'Compiling Optimized PDF...'}
-              </p>
+          {/* 3-Column Page Card Grid */}
+          <div className="grid grid-cols-3 gap-3 pb-8">
+            {pages.map((p, idx) => {
+              const isSelected = selectedPages.has(idx);
+              const isCurrent = idx === safeIndex;
+              return (
+                <div
+                  key={p.id}
+                  onClick={() => {
+                    setCurrentPageIndex(idx);
+                    setIsGridView(false);
+                  }}
+                  className={`relative rounded-xl overflow-hidden border-2 bg-black/40 flex flex-col group cursor-pointer transition-all ${
+                    isSelected
+                      ? 'border-emerald-400 ring-2 ring-emerald-500/40 shadow-lg'
+                      : isCurrent
+                      ? 'border-emerald-500/70'
+                      : 'border-white/10 hover:border-white/30'
+                  }`}
+                >
+                  <div className="aspect-[3/4] w-full relative">
+                    <img src={p.thumbnailDataUrl} alt="" className="w-full h-full object-cover" />
+                    {/* Multi-select Checkbox */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleTogglePageSelect(idx);
+                      }}
+                      className="absolute top-1.5 left-1.5 p-1 rounded-md bg-black/70 text-white shadow"
+                    >
+                      {isSelected ? (
+                        <CheckSquare className="w-4 h-4 text-emerald-400" />
+                      ) : (
+                        <Square className="w-4 h-4 text-gray-400" />
+                      )}
+                    </button>
+                    {/* Page badge */}
+                    <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/80 text-[10px] text-white font-bold">
+                      #{idx + 1}
+                    </span>
+                  </div>
+
+                  {/* Reorder actions */}
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex items-center justify-between p-1 bg-white/5 border-t border-white/5"
+                  >
+                    <button
+                      disabled={idx === 0}
+                      onClick={() => onMovePage(idx, idx - 1)}
+                      className="px-2 py-0.5 text-[10px] text-gray-300 disabled:opacity-20 hover:text-white"
+                    >
+                      ◀
+                    </button>
+                    <span className="text-[9px] text-gray-500 font-semibold">Move</span>
+                    <button
+                      disabled={idx === pages.length - 1}
+                      onClick={() => onMovePage(idx, idx + 1)}
+                      className="px-2 py-0.5 text-[10px] text-gray-300 disabled:opacity-20 hover:text-white"
+                    >
+                      ▶
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div className="relative flex-1 w-full h-full flex items-center justify-center p-4 overflow-hidden">
+          {toastMsg && (
+            <div className="absolute top-4 inset-x-0 flex justify-center z-40 pointer-events-none animate-in fade-in duration-200">
+              <span className="px-4 py-1.5 rounded-full bg-emerald-500 text-black font-semibold text-xs shadow-2xl flex items-center gap-1.5 border border-white/20">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>{toastMsg}</span>
+              </span>
             </div>
           )}
+
+          {/* Smart Barcode / QR Code Intelligence Badge */}
+          {detectedBarcodes.length > 0 && (
+            <div className="absolute top-2 inset-x-6 z-30 flex items-center justify-between px-3.5 py-2 rounded-2xl bg-black/85 backdrop-blur-xl border border-emerald-500/40 shadow-2xl animate-in fade-in slide-in-from-top-2">
+              <div className="flex items-center gap-2 overflow-hidden">
+                <QrCode className="w-4 h-4 text-emerald-400 shrink-0" />
+                <div className="flex flex-col overflow-hidden text-left">
+                  <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">
+                    {detectedBarcodes[0].format.replace('_', ' ')} Detected
+                  </span>
+                  <span className="text-xs text-white truncate max-w-[180px] font-mono">
+                    {detectedBarcodes[0].rawValue}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={() => {
+                    triggerHaptic(15);
+                    navigator.clipboard?.writeText(detectedBarcodes[0].rawValue);
+                    setToastMsg('Code copied to clipboard');
+                    setTimeout(() => setToastMsg(''), 2000);
+                  }}
+                  className="p-1.5 rounded-lg glass-button text-gray-300 hover:text-white"
+                  title="Copy code"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </button>
+                {detectedBarcodes[0].rawValue.startsWith('http') && (
+                  <a
+                    href={detectedBarcodes[0].rawValue}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="p-1.5 rounded-lg glass-button text-emerald-400 hover:text-white"
+                    title="Open link"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="relative max-w-full max-h-[54vh] rounded-xl overflow-hidden shadow-2xl border border-white/10">
+            <img
+              src={previewSource}
+              alt={`Page ${safeIndex + 1}`}
+              className="w-full h-full object-contain block pointer-events-none"
+            />
+
+            {/* Attached Digital Signature */}
+            {signatures[safeIndex] && (
+              <div
+                style={{
+                  left: `${signatures[safeIndex].x * 100}%`,
+                  top: `${signatures[safeIndex].y * 100}%`,
+                }}
+                className="absolute z-20 w-32 -translate-x-1/2 -translate-y-1/2 p-1.5 border-2 border-dashed border-emerald-400 bg-emerald-500/10 rounded-xl shadow-2xl flex items-center justify-center group"
+              >
+                <img
+                  src={signatures[safeIndex].dataUrl}
+                  alt="Signature"
+                  className="w-full h-auto object-contain pointer-events-none"
+                />
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    triggerHaptic(10);
+                    setSignatures((prev) => {
+                      const next = { ...prev };
+                      delete next[safeIndex];
+                      return next;
+                    });
+                  }}
+                  className="absolute -top-2.5 -right-2.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-xs font-bold shadow-md active:scale-90"
+                  title="Remove signature"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {pdfGenerating && (
+              <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center z-30">
+                <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-3" />
+                <p className="text-sm font-semibold text-white">
+                  {ocrStatus || 'Compiling Optimized PDF...'}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {safeIndex > 0 && (
+            <button
+              onClick={() => {
+                triggerHaptic(10);
+                setCurrentPageIndex(safeIndex - 1);
+              }}
+              className="absolute left-4 p-3 rounded-full glass-button text-white active:scale-90 shadow-xl"
+            >
+              <ChevronLeft className="w-6 h-6" />
+            </button>
+          )}
+
+          {safeIndex < pages.length - 1 && (
+            <button
+              onClick={() => {
+                triggerHaptic(10);
+                setCurrentPageIndex(safeIndex + 1);
+              }}
+              className="absolute right-4 p-3 rounded-full glass-button text-white active:scale-90 shadow-xl"
+            >
+              <ChevronRight className="w-6 h-6" />
+            </button>
+          )}
         </div>
-
-        {safeIndex > 0 && (
-          <button
-            onClick={() => {
-              triggerHaptic(10);
-              setCurrentPageIndex(safeIndex - 1);
-            }}
-            className="absolute left-4 p-3 rounded-full glass-button text-white active:scale-90 shadow-xl"
-          >
-            <ChevronLeft className="w-6 h-6" />
-          </button>
-        )}
-
-        {safeIndex < pages.length - 1 && (
-          <button
-            onClick={() => {
-              triggerHaptic(10);
-              setCurrentPageIndex(safeIndex + 1);
-            }}
-            className="absolute right-4 p-3 rounded-full glass-button text-white active:scale-90 shadow-xl"
-          >
-            <ChevronRight className="w-6 h-6" />
-          </button>
-        )}
-      </div>
+      )}
 
       {/* Bottom Controls: Tools, Reordering & Export */}
       <div className="relative z-20 flex flex-col gap-2 px-6 pt-2 pb-12 glass-panel border-t-0">
@@ -595,10 +856,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
             return (
               <button
                 key={item.id}
-                onClick={() => {
-                  triggerHaptic(10);
-                  setActiveFilter(item.id);
-                }}
+                onClick={() => handleFilterSelect(item.id)}
                 className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
                   isActive
                     ? 'bg-emerald-500 text-black font-semibold shadow-md emerald-glow'
@@ -613,11 +871,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
 
           {pages.length > 1 && (
             <button
-              onClick={() => {
-                triggerHaptic(15);
-                setToastMsg('Applied filter to all pages');
-                setTimeout(() => setToastMsg(''), 2200);
-              }}
+              onClick={handleApplyFilterToAll}
               className="text-[10px] text-emerald-400 font-semibold underline underline-offset-2 ml-1 active:opacity-60"
               title="Apply current filter to all pages"
             >
@@ -666,23 +920,44 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
         </div>
 
         {/* Action Row */}
-        <div className="flex items-center gap-3 mt-0.5">
+        <div className="flex items-center gap-2.5 mt-0.5">
           <button
             onClick={handleOpenInOtium}
             disabled={pdfGenerating}
             className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-emerald-500 text-black font-semibold text-sm active:scale-95 transition-transform emerald-glow shadow-lg disabled:opacity-50"
           >
             <BookOpen className="w-4 h-4 stroke-[2.5]" />
-            <span>Open in Otium Reader</span>
+            <span>Open in Otium</span>
           </button>
 
+          {/* Native Android Share Sheet */}
+          <button
+            onClick={handleSharePdf}
+            disabled={pdfGenerating}
+            className="p-3 rounded-2xl glass-button text-gray-200 active:scale-95 transition-transform disabled:opacity-50"
+            title="Share Document via Android Share Sheet"
+          >
+            <Share2 className="w-5 h-5 text-emerald-400" />
+          </button>
+
+          {/* Export JPG */}
+          <button
+            onClick={handleDownloadJpg}
+            disabled={pdfGenerating}
+            className="p-3 rounded-2xl glass-button text-gray-200 active:scale-95 transition-transform disabled:opacity-50"
+            title="Export Current Page as JPG"
+          >
+            <ImageIcon className="w-5 h-5 text-gray-300" />
+          </button>
+
+          {/* Download PDF */}
           <button
             onClick={handleDownloadPdf}
             disabled={pdfGenerating}
             className="p-3 rounded-2xl glass-button text-gray-200 active:scale-95 transition-transform disabled:opacity-50"
             title="Download compiled PDF"
           >
-            <Download className="w-5 h-5 text-gray-200" />
+            <Download className="w-5 h-5 text-gray-300" />
           </button>
         </div>
       </div>
@@ -700,6 +975,79 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
           setTimeout(() => setToastMsg(''), 2200);
         }}
       />
+
+      {/* Security Watermark Dialog Modal */}
+      {isWatermarkOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-6 select-none">
+          <div className="w-full max-w-sm bg-[#161616] border border-white/10 rounded-3xl p-6 shadow-2xl flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Stamp className="w-5 h-5 text-emerald-400" />
+                <span className="text-sm font-semibold text-white">Security Watermark</span>
+              </div>
+              <button
+                onClick={() => setIsWatermarkOpen(false)}
+                className="p-1.5 rounded-full glass-button text-gray-400"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-400">
+              Prints diagonal semi-transparent security text across all pages in the PDF.
+            </p>
+
+            <input
+              type="text"
+              placeholder="e.g. CONFIDENTIAL, DRAFT, COPY..."
+              value={watermarkText}
+              onChange={(e) => setWatermarkText(e.target.value)}
+              className="w-full bg-white/5 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/60"
+            />
+
+            {/* Quick Presets */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {['CONFIDENTIAL', 'ORIGINAL', 'DRAFT', 'COPY', 'PAID'].map((preset) => (
+                <button
+                  key={preset}
+                  onClick={() => setWatermarkText(preset)}
+                  className="px-2.5 py-1 rounded-lg bg-white/5 text-[10px] text-gray-300 border border-white/5 hover:border-emerald-400/40 active:scale-95"
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/5">
+              {watermarkText && (
+                <button
+                  onClick={() => {
+                    setWatermarkText('');
+                    setIsWatermarkOpen(false);
+                    setToastMsg('Watermark removed');
+                    setTimeout(() => setToastMsg(''), 2000);
+                  }}
+                  className="px-3.5 py-2 rounded-xl text-xs text-red-400 glass-button mr-auto"
+                >
+                  Remove
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  setIsWatermarkOpen(false);
+                  if (watermarkText.trim()) {
+                    setToastMsg(`Watermark set: "${watermarkText.trim()}"`);
+                    setTimeout(() => setToastMsg(''), 2200);
+                  }
+                }}
+                className="px-5 py-2 rounded-xl bg-emerald-500 text-black font-bold text-xs emerald-glow active:scale-95"
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

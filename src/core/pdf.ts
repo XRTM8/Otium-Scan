@@ -21,7 +21,8 @@ export type PdfPageFormat = 'a4' | 'fit';
 export async function createPdfFromCanvases(
   pagesInput: (HTMLCanvasElement | PdfPageInput)[],
   compressionPreset: PdfCompressionPreset = 'balanced',
-  pageFormat: PdfPageFormat = 'a4'
+  pageFormat: PdfPageFormat = 'a4',
+  watermarkText?: string
 ): Promise<Blob> {
   const pages: PdfPageInput[] = pagesInput.map((item) =>
     'canvas' in item ? item : { canvas: item, words: [] }
@@ -153,6 +154,12 @@ export async function createPdfFromCanvases(
         contentStream += `1 0 0 1 ${wx} ${wy} Tm (${cleanText}) Tj\n`;
       }
       contentStream += 'ET\n';
+    }
+
+    // Diagonal Security Watermark
+    if (watermarkText && watermarkText.trim().length > 0) {
+      const cleanWm = watermarkText.trim().replace(/[()\\]/g, '\\$&');
+      contentStream += `q\n0.72 0.72 0.72 rg\nBT\n/F1 38 Tf\n0.7071 0.7071 -0.7071 0.7071 ${Math.round(pagePtWidth * 0.22)} ${Math.round(pagePtHeight * 0.32)} Tm\n(${cleanWm}) Tj\nET\nQ\n`;
     }
 
     const streamLen = new TextEncoder().encode(contentStream).length;

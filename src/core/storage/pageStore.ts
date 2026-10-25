@@ -5,6 +5,9 @@
  * Prevents mobile Out-Of-Memory (OOM) crashes during large 50+ page scanning sessions.
  */
 
+import { FilterType } from '../types';
+import { applyFilterAsync } from '../filters';
+
 const DB_NAME = 'otium_scan_storage';
 const DB_VERSION = 1;
 const STORE_NAME = 'scanned_pages';
@@ -211,6 +214,58 @@ function createImageFromBlob(blob: Blob): Promise<HTMLImageElement> {
     };
     img.src = url;
   });
+}
+
+/**
+ * Updates the enhancement filter for a stored page using the background Web Worker,
+ * updating the high-res filtered blob and thumbnail data url.
+ */
+export async function updateStoredPageFilter(id: string, filter: FilterType): Promise<string> {
+  const db = await getDB();
+  const record: StoredPageRecord = await new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const store = tx.objectStore(STORE_NAME);
+    const req = store.get(id);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+
+  if (!record) throw new Error('Page not found');
+
+  const warpedImg = await createImageFromBlob(record.warpedBlob);
+  const warpedCanvas = document.createElement('canvas');
+  warpedCanvas.width = warpedImg.naturalWidth;
+  warpedCanvas.height = warpedImg.naturalHeight;
+  const ctx = warpedCanvas.getContext('2d');
+  if (ctx) ctx.drawImage(warpedImg, 0, 0);
+
+  const filteredCanvas = await applyFilterAsync(warpedCanvas, filter);
+
+  const newFilteredBlob = await new Promise<Blob>((resolve) =>
+    filteredCanvas.toBlob((b) => resolve(b || new Blob()), 'image/jpeg', 0.88)
+  );
+
+  const thumbCanvas = document.createElement('canvas');
+  const aspect = filteredCanvas.width / filteredCanvas.height;
+  thumbCanvas.width = 120;
+  thumbCanvas.height = Math.round(120 / aspect);
+  const tCtx = thumbCanvas.getContext('2d');
+  if (tCtx) tCtx.drawImage(filteredCanvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
+  const newThumbDataUrl = thumbCanvas.toDataURL('image/jpeg', 0.6);
+
+  record.filteredBlob = newFilteredBlob;
+  record.thumbnailDataUrl = newThumbDataUrl;
+  record.filter = filter;
+
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const req = store.put(record);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+
+  return newThumbDataUrl;
 }
 
 /**
