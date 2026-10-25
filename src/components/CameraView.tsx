@@ -9,9 +9,11 @@ import {
   ScanLine,
   Sparkles,
   Eye,
+  CreditCard,
 } from 'lucide-react';
 import { playShutterSound } from '../core/audio';
 import { detectDocumentCorners, calculateLaplacianSharpness } from '../core/edgeDetection';
+import { mergeIdCardSidesToA4 } from '../core/idCard';
 import { Quad } from '../core/types';
 
 interface CameraViewProps {
@@ -33,7 +35,10 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [torchOn, setTorchOn] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
-  const [scanMode, setScanMode] = useState<'single' | 'batch'>('batch'); // default to fast batch
+  const [scanMode, setScanMode] = useState<'single' | 'batch' | 'idcard'>('batch');
+  const [idCardStep, setIdCardStep] = useState<'front' | 'back'>('front');
+  const [idFrontDataUrl, setIdFrontDataUrl] = useState<string | null>(null);
+  const [idStatusToast, setIdStatusToast] = useState<string>('');
   const [capturing, setCapturing] = useState(false);
   const [flashAnimation, setFlashAnimation] = useState(false);
   const [autoCaptureEnabled, setAutoCaptureEnabled] = useState(false);
@@ -177,6 +182,61 @@ export const CameraView: React.FC<CameraViewProps> = ({
     setFlashAnimation(true);
     setTimeout(() => setFlashAnimation(false), 120);
 
+    const processCapturedImage = async (dataUrl: string) => {
+      if (scanMode === 'idcard') {
+        if (idCardStep === 'front') {
+          setIdFrontDataUrl(dataUrl);
+          setIdCardStep('back');
+          setIdStatusToast('Front captured! Now flip and scan Back side');
+          setTimeout(() => setIdStatusToast(''), 3000);
+          setCapturing(false);
+          return;
+        } else if (idFrontDataUrl) {
+          setIdStatusToast('Merging ID card sides onto A4...');
+          try {
+            const [frontImg, backImg] = await Promise.all([
+              new Promise<HTMLImageElement>((res, rej) => {
+                const img = new Image();
+                img.onload = () => res(img);
+                img.onerror = rej;
+                img.src = idFrontDataUrl;
+              }),
+              new Promise<HTMLImageElement>((res, rej) => {
+                const img = new Image();
+                img.onload = () => res(img);
+                img.onerror = rej;
+                img.src = dataUrl;
+              }),
+            ]);
+
+            const makeCanvas = (img: HTMLImageElement) => {
+              const c = document.createElement('canvas');
+              c.width = img.naturalWidth;
+              c.height = img.naturalHeight;
+              const ctx = c.getContext('2d');
+              if (ctx) ctx.drawImage(img, 0, 0);
+              return c;
+            };
+
+            const mergedCanvas = await mergeIdCardSidesToA4(makeCanvas(frontImg), makeCanvas(backImg));
+            const mergedDataUrl = mergedCanvas.toDataURL('image/jpeg', 0.92);
+
+            setIdFrontDataUrl(null);
+            setIdCardStep('front');
+            setIdStatusToast('');
+            setCapturing(false);
+            onCapture(mergedDataUrl, false);
+            return;
+          } catch (e) {
+            console.warn('ID Card merge failed:', e);
+          }
+        }
+      }
+
+      setCapturing(false);
+      onCapture(dataUrl, scanMode === 'batch');
+    };
+
     try {
       if (stream) {
         const track = stream.getVideoTracks()[0];
@@ -191,8 +251,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
             const reader = new FileReader();
             reader.onload = () => {
               if (typeof reader.result === 'string') {
-                setCapturing(false);
-                onCapture(reader.result, scanMode === 'batch');
+                processCapturedImage(reader.result);
               }
             };
             reader.readAsDataURL(blob);
@@ -212,8 +271,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
         if (ctx) {
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
-          setCapturing(false);
-          onCapture(dataUrl, scanMode === 'batch');
+          processCapturedImage(dataUrl);
           return;
         }
       }
@@ -224,7 +282,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
     } finally {
       setCapturing(false);
     }
-  }, [capturing, onCapture, scanMode, stream]);
+  }, [capturing, idCardStep, idFrontDataUrl, onCapture, scanMode, stream]);
 
   // Tri-Condition Hands-Free Auto-Capture Gate:
   // 1. Phone is level (<3.5° roll/pitch)
@@ -341,6 +399,23 @@ export const CameraView: React.FC<CameraViewProps> = ({
               <ScanLine className="w-3 h-3" />
               <span>Batch</span>
             </button>
+            <button
+              onClick={() => {
+                triggerHaptic(10);
+                setScanMode('idcard');
+                setIdCardStep('front');
+                setIdFrontDataUrl(null);
+              }}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-full font-medium transition-all ${
+                scanMode === 'idcard'
+                  ? 'bg-emerald-500 text-black font-semibold shadow-sm'
+                  : 'text-gray-400'
+              }`}
+              title="ID Card 2-in-1 (Front + Back merged onto A4)"
+            >
+              <CreditCard className="w-3 h-3" />
+              <span>ID Card</span>
+            </button>
           </div>
 
           {/* Hands-Free Auto Capture Toggle */}
@@ -369,6 +444,16 @@ export const CameraView: React.FC<CameraViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Floating ID Card Status Toast */}
+      {idStatusToast && (
+        <div className="absolute top-24 inset-x-0 flex justify-center z-40 pointer-events-none animate-in fade-in duration-200">
+          <span className="px-4 py-2 rounded-2xl bg-emerald-500 text-black font-bold text-xs shadow-2xl flex items-center gap-1.5 border border-white/20">
+            <CreditCard className="w-4 h-4" />
+            <span>{idStatusToast}</span>
+          </span>
+        </div>
+      )}
 
       {/* Main Viewfinder */}
       <div className="relative flex-1 w-full h-full flex items-center justify-center overflow-hidden">
@@ -444,7 +529,12 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
           <div className="absolute bottom-4 inset-x-0 text-center">
             <span className="text-xs bg-black/60 backdrop-blur-md px-3.5 py-1.5 rounded-full text-gray-200 border border-white/10 inline-flex items-center justify-center gap-1.5 mx-auto max-w-fit">
-              {!isSharp ? (
+              {scanMode === 'idcard' ? (
+                <span className="text-emerald-400 font-bold flex items-center gap-1.5">
+                  <CreditCard className="w-3.5 h-3.5" />
+                  <span>ID Card: {idCardStep === 'front' ? 'Align FRONT Side' : 'Align BACK Side'}</span>
+                </span>
+              ) : !isSharp ? (
                 <span className="text-amber-400 font-semibold">Adjusting Focus ({sharpnessScore})...</span>
               ) : liveQuad ? (
                 <span className="text-emerald-400 font-semibold flex items-center gap-1">

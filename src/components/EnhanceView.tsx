@@ -1,7 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { FilterType, ScannedPage } from '../core/types';
-import { createPdfFromCanvases, PdfCompressionPreset, PdfPageFormat, PdfPageInput } from '../core/pdf';
-import { loadPageCanvasFromDisk, updateStoredPageFilter } from '../core/storage/pageStore';
+import {
+  createPdfFromCanvases,
+  PdfCompressionPreset,
+  PdfPageFormat,
+  PdfPageInput,
+  PdfWatermarkStyle,
+} from '../core/pdf';
+import { loadPageCanvasFromDisk, updateStoredPageFilter, storePageToDisk } from '../core/storage/pageStore';
 import { saveDocumentToLibrary } from '../core/storage/documentLibrary';
 import { dewarpBookCurvature } from '../core/geometry';
 import { performOcr } from '../core/ocr/ocrEngine';
@@ -32,6 +38,8 @@ import {
   QrCode,
   Copy,
   ExternalLink,
+  EyeOff,
+  Undo2,
 } from 'lucide-react';
 
 interface EnhanceViewProps {
@@ -66,7 +74,12 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
   const [isGridView, setIsGridView] = useState(false);
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
   const [watermarkText, setWatermarkText] = useState<string>('');
+  const [watermarkStyle, setWatermarkStyle] = useState<PdfWatermarkStyle>('diagonal');
   const [isWatermarkOpen, setIsWatermarkOpen] = useState(false);
+  const [isRedacting, setIsRedacting] = useState<boolean>(false);
+  const [redactionStrokes, setRedactionStrokes] = useState<{ x: number; y: number }[][]>([]);
+  const [currentStroke, setCurrentStroke] = useState<{ x: number; y: number }[]>([]);
+  const previewImageRef = useRef<HTMLImageElement | null>(null);
   const [toastMsg, setToastMsg] = useState<string>('');
   const [pdfGenerating, setPdfGenerating] = useState(false);
   const [ocrStatus, setOcrStatus] = useState<string>('');
@@ -191,6 +204,56 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     }
   };
 
+  const handleBurnRedaction = async () => {
+    if (redactionStrokes.length === 0) {
+      setIsRedacting(false);
+      return;
+    }
+    triggerHaptic(20);
+    try {
+      const rawCanvas = await loadPageCanvasFromDisk(currentPage.id);
+      const ctx = rawCanvas.getContext('2d');
+      if (ctx && previewImageRef.current) {
+        const rect = previewImageRef.current.getBoundingClientRect();
+        const scaleX = rawCanvas.width / rect.width;
+        const scaleY = rawCanvas.height / rect.height;
+
+        ctx.strokeStyle = '#000000';
+        ctx.fillStyle = '#000000';
+        ctx.lineWidth = 18 * scaleX;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        for (const stroke of redactionStrokes) {
+          if (stroke.length === 0) continue;
+          ctx.beginPath();
+          ctx.moveTo(stroke[0].x * scaleX, stroke[0].y * scaleY);
+          for (let i = 1; i < stroke.length; i++) {
+            ctx.lineTo(stroke[i].x * scaleX, stroke[i].y * scaleY);
+          }
+          ctx.stroke();
+        }
+
+        // Overwrite disk page storage with permanently redacted pixels
+        await storePageToDisk(
+          currentPage.id,
+          currentPage.thumbnailDataUrl,
+          rawCanvas,
+          rawCanvas,
+          currentPage.filter
+        );
+
+        setFullResPreviewUrl(rawCanvas.toDataURL('image/jpeg', 0.9));
+        setRedactionStrokes([]);
+        setIsRedacting(false);
+        setToastMsg('Confidential info permanently censored');
+        setTimeout(() => setToastMsg(''), 2200);
+      }
+    } catch (e) {
+      console.warn('Redaction burn failed:', e);
+    }
+  };
+
   const generateCompiledPdf = async (): Promise<Blob> => {
     const pageInputs: PdfPageInput[] = [];
 
@@ -231,7 +294,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     }
 
     setOcrStatus('');
-    return await createPdfFromCanvases(pageInputs, compressionPreset, pageFormat, watermarkText);
+    return await createPdfFromCanvases(pageInputs, compressionPreset, pageFormat, watermarkText, watermarkStyle);
   };
 
   const handleRotateCurrentPage = async () => {
@@ -385,6 +448,20 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5">
+          {/* Privacy Redaction Brush */}
+          <button
+            onClick={() => {
+              triggerHaptic(15);
+              setIsRedacting(!isRedacting);
+            }}
+            className={`p-2 rounded-full glass-button transition-colors ${
+              isRedacting ? 'text-emerald-400 border-emerald-500/50 bg-emerald-500/20' : 'text-gray-300 active:text-emerald-400'
+            }`}
+            title="Redact / Censor Sensitive Data"
+          >
+            <EyeOff className="w-4 h-4" />
+          </button>
+
           {/* Grid Overview Toggle */}
           <button
             onClick={() => {
@@ -472,6 +549,45 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Active Redaction Control Bar */}
+      {isRedacting && (
+        <div className="relative z-30 px-6 py-2.5 bg-black/95 border-b border-emerald-500/30 flex items-center justify-between text-xs animate-in slide-in-from-top-2">
+          <div className="flex items-center gap-2 text-emerald-400 font-semibold">
+            <EyeOff className="w-4 h-4 shrink-0" />
+            <span className="truncate">Drag finger over text to censor</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => {
+                triggerHaptic(10);
+                setRedactionStrokes((prev) => prev.slice(0, -1));
+              }}
+              disabled={redactionStrokes.length === 0}
+              className="p-1.5 rounded-lg glass-button text-gray-300 disabled:opacity-30 hover:text-white"
+              title="Undo last stroke"
+            >
+              <Undo2 className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => {
+                triggerHaptic(10);
+                setIsRedacting(false);
+                setRedactionStrokes([]);
+              }}
+              className="px-3 py-1 rounded-lg text-gray-400 hover:text-white text-xs"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleBurnRedaction}
+              className="px-3.5 py-1 rounded-lg bg-emerald-500 text-black font-bold text-xs emerald-glow active:scale-95"
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Stage: Carousel View or Grid Overview Sheet */}
       {isGridView ? (
@@ -623,12 +739,77 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
             </div>
           )}
 
-          <div className="relative max-w-full max-h-[54vh] rounded-xl overflow-hidden shadow-2xl border border-white/10">
+          <div className="relative max-w-full max-h-[54vh] rounded-xl overflow-hidden shadow-2xl border border-white/10 select-none">
             <img
+              ref={previewImageRef}
               src={previewSource}
               alt={`Page ${safeIndex + 1}`}
               className="w-full h-full object-contain block pointer-events-none"
             />
+
+            {/* Interactive Redaction Drawing Layer */}
+            {isRedacting && (
+              <svg
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  (e.target as HTMLElement).setPointerCapture(e.pointerId);
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const pt = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+                  setCurrentStroke([pt]);
+                }}
+                onPointerMove={(e) => {
+                  if (currentStroke.length === 0) return;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const pt = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+                  setCurrentStroke((prev) => [...prev, pt]);
+                }}
+                onPointerUp={() => {
+                  if (currentStroke.length > 0) {
+                    setRedactionStrokes((prev) => [...prev, currentStroke]);
+                    setCurrentStroke([]);
+                  }
+                }}
+                className="absolute inset-0 w-full h-full z-30 touch-none cursor-crosshair bg-black/5"
+              >
+                {redactionStrokes.map((stroke, i) => (
+                  <polyline
+                    key={i}
+                    points={stroke.map((p) => `${p.x},${p.y}`).join(' ')}
+                    fill="none"
+                    stroke="#000000"
+                    strokeWidth="18"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                ))}
+                {currentStroke.length > 0 && (
+                  <polyline
+                    points={currentStroke.map((p) => `${p.x},${p.y}`).join(' ')}
+                    fill="none"
+                    stroke="#000000"
+                    strokeWidth="18"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )}
+              </svg>
+            )}
+
+            {!isRedacting && redactionStrokes.length > 0 && (
+              <svg className="absolute inset-0 w-full h-full z-20 pointer-events-none">
+                {redactionStrokes.map((stroke, i) => (
+                  <polyline
+                    key={i}
+                    points={stroke.map((p) => `${p.x},${p.y}`).join(' ')}
+                    fill="none"
+                    stroke="#000000"
+                    strokeWidth="18"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                ))}
+              </svg>
+            )}
 
             {/* Attached Digital Signature */}
             {signatures[safeIndex] && (
@@ -996,6 +1177,30 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
             <p className="text-xs text-gray-400">
               Prints diagonal semi-transparent security text across all pages in the PDF.
             </p>
+
+            {/* Watermark Layout Style: Single Center vs Full Page Tiled Grid */}
+            <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-white/5 border border-white/10 text-xs">
+              <button
+                onClick={() => setWatermarkStyle('diagonal')}
+                className={`flex-1 py-1.5 rounded-xl font-medium transition-all ${
+                  watermarkStyle === 'diagonal'
+                    ? 'bg-emerald-500 text-black font-semibold shadow'
+                    : 'text-gray-400'
+                }`}
+              >
+                Single Center
+              </button>
+              <button
+                onClick={() => setWatermarkStyle('tiled')}
+                className={`flex-1 py-1.5 rounded-xl font-medium transition-all ${
+                  watermarkStyle === 'tiled'
+                    ? 'bg-emerald-500 text-black font-semibold shadow'
+                    : 'text-gray-400'
+                }`}
+              >
+                Tiled Anti-Fraud Grid
+              </button>
+            </div>
 
             <input
               type="text"
