@@ -14,6 +14,11 @@
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
+    <!-- Package Visibility for Android 11+: Allow direct discovery of Otium Reader -->
+    <queries>
+        <package android:name="com.otium.reader" />
+    </queries>
+
     <application
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"

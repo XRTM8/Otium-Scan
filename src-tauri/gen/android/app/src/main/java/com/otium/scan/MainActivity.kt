@@ -338,6 +338,7 @@ class MainActivity : TauriActivity() {
 
           val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, "application/pdf")
+            clipData = android.content.ClipData.newRawUri("PDF", uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             setPackage("com.otium.reader")
