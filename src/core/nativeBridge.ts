@@ -8,9 +8,11 @@
 declare global {
   interface Window {
     OtiumNative?: {
-      sharePdf: (base64Data: string, filename: string) => void;
-      savePdfToDownloads: (base64Data: string, filename: string) => boolean;
-      openInOtiumReader: (base64Data: string, filename: string) => void;
+      sharePdf?: (base64Data: string, filename: string) => void;
+      shareFile?: (base64Data: string, filename: string, mimeType: string) => void;
+      savePdfToDownloads?: (base64Data: string, filename: string) => boolean;
+      saveFileToDownloads?: (base64Data: string, filename: string, mimeType: string) => boolean;
+      openInOtiumReader?: (base64Data: string, filename: string) => void;
     };
   }
 }
@@ -32,29 +34,44 @@ export async function blobToBase64(blob: Blob): Promise<string> {
 }
 
 /**
- * Share PDF using native Android Share Sheet or Web Share API
+ * Share PDF or file using native Android Share Sheet or Web Share API
  */
-export async function nativeSharePdf(blob: Blob, filename: string, title?: string): Promise<void> {
-  const cleanFilename = filename.endsWith('.pdf') ? filename : `${filename}.pdf`;
+export async function nativeShareFile(
+  blob: Blob,
+  filename: string,
+  title?: string,
+  mimeType?: string
+): Promise<void> {
+  const resolvedMime = mimeType || blob.type || 'application/octet-stream';
 
-  if (window.OtiumNative?.sharePdf) {
+  if (window.OtiumNative?.shareFile) {
     try {
       const base64 = await blobToBase64(blob);
-      window.OtiumNative.sharePdf(base64, cleanFilename);
+      window.OtiumNative.shareFile(base64, filename, resolvedMime);
       return;
     } catch (e) {
-      console.warn('Native share failed, falling back:', e);
+      console.warn('Native shareFile failed, falling back:', e);
+    }
+  }
+
+  if (window.OtiumNative?.sharePdf && filename.endsWith('.pdf')) {
+    try {
+      const base64 = await blobToBase64(blob);
+      window.OtiumNative.sharePdf(base64, filename);
+      return;
+    } catch (e) {
+      console.warn('Native sharePdf failed, falling back:', e);
     }
   }
 
   // Web Share fallback
-  const file = new File([blob], cleanFilename, { type: 'application/pdf' });
+  const file = new File([blob], filename, { type: resolvedMime });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try {
       await navigator.share({
         files: [file],
-        title: title || cleanFilename,
-        text: `مستند ممسوح ضوئياً بواسطة Otium Scan`,
+        title: title || filename,
+        text: `تمت المشاركة من Otium Scan`,
       });
       return;
     } catch (e) {
@@ -64,27 +81,58 @@ export async function nativeSharePdf(blob: Blob, filename: string, title?: strin
   }
 
   // Fallback download
-  downloadBlob(blob, cleanFilename);
+  downloadBlob(blob, filename);
+}
+
+export async function nativeSharePdf(blob: Blob, filename: string, title?: string): Promise<void> {
+  const cleanFilename = filename.endsWith('.pdf') ? filename : `${filename}.pdf`;
+  return nativeShareFile(blob, cleanFilename, title, 'application/pdf');
+}
+
+export async function nativeShareImage(blob: Blob, filename: string, title?: string): Promise<void> {
+  return nativeShareFile(blob, filename, title, 'image/jpeg');
 }
 
 /**
- * Save PDF directly to Android Downloads directory with system toast
+ * Save file directly to Android Downloads or Pictures directory with system toast
  */
-export async function nativeSavePdf(blob: Blob, filename: string): Promise<boolean> {
-  const cleanFilename = filename.endsWith('.pdf') ? filename : `${filename}.pdf`;
+export async function nativeSaveFile(
+  blob: Blob,
+  filename: string,
+  mimeType?: string
+): Promise<boolean> {
+  const resolvedMime = mimeType || blob.type || 'application/octet-stream';
 
-  if (window.OtiumNative?.savePdfToDownloads) {
+  if (window.OtiumNative?.saveFileToDownloads) {
     try {
       const base64 = await blobToBase64(blob);
-      return window.OtiumNative.savePdfToDownloads(base64, cleanFilename);
+      return window.OtiumNative.saveFileToDownloads(base64, filename, resolvedMime);
     } catch (e) {
-      console.warn('Native save failed, falling back:', e);
+      console.warn('Native saveFileToDownloads failed, falling back:', e);
+    }
+  }
+
+  if (window.OtiumNative?.savePdfToDownloads && filename.endsWith('.pdf')) {
+    try {
+      const base64 = await blobToBase64(blob);
+      return window.OtiumNative.savePdfToDownloads(base64, filename);
+    } catch (e) {
+      console.warn('Native savePdfToDownloads failed, falling back:', e);
     }
   }
 
   // Web download fallback
-  downloadBlob(blob, cleanFilename);
+  downloadBlob(blob, filename);
   return true;
+}
+
+export async function nativeSavePdf(blob: Blob, filename: string): Promise<boolean> {
+  const cleanFilename = filename.endsWith('.pdf') ? filename : `${filename}.pdf`;
+  return nativeSaveFile(blob, cleanFilename, 'application/pdf');
+}
+
+export async function nativeSaveImage(blob: Blob, filename: string): Promise<boolean> {
+  return nativeSaveFile(blob, filename, 'image/jpeg');
 }
 
 /**

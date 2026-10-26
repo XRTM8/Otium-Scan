@@ -230,11 +230,22 @@ function renderTriangle(
   d1x: number, d1y: number,
   d2x: number, d2y: number
 ) {
+  // Centroid expansion by 0.45px to eliminate anti-aliasing hairline gaps between adjacent quads
+  const cx = (d0x + d1x + d2x) / 3;
+  const cy = (d0y + d1y + d2y) / 3;
+  const ex = (x: number, y: number) => ({
+    x: x + Math.sign(x - cx || 1) * 0.45,
+    y: y + Math.sign(y - cy || 1) * 0.45,
+  });
+  const e0 = ex(d0x, d0y);
+  const e1 = ex(d1x, d1y);
+  const e2 = ex(d2x, d2y);
+
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(d0x, d0y);
-  ctx.lineTo(d1x, d1y);
-  ctx.lineTo(d2x, d2y);
+  ctx.moveTo(e0.x, e0.y);
+  ctx.lineTo(e1.x, e1.y);
+  ctx.lineTo(e2.x, e2.y);
   ctx.closePath();
   ctx.clip();
 

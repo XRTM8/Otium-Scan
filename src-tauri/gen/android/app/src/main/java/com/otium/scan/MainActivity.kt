@@ -173,10 +173,15 @@ class MainActivity : TauriActivity() {
 
   inner class OtiumNativeBridge {
     /**
-     * Native Android Share Sheet for PDF files
+     * Native Android Share Sheet for PDF and image files
      */
     @JavascriptInterface
     fun sharePdf(base64Data: String, filename: String) {
+      shareFile(base64Data, filename, "application/pdf")
+    }
+
+    @JavascriptInterface
+    fun shareFile(base64Data: String, filename: String, mimeType: String) {
       runOnUiThread {
         try {
           val cleanBase64 = if (base64Data.contains(",")) base64Data.substringAfter(",") else base64Data
@@ -190,14 +195,22 @@ class MainActivity : TauriActivity() {
             file
           )
 
+          val resolvedMime = when {
+            filename.endsWith(".jpg", true) || filename.endsWith(".jpeg", true) -> "image/jpeg"
+            filename.endsWith(".png", true) -> "image/png"
+            filename.endsWith(".pdf", true) -> "application/pdf"
+            mimeType.isNotEmpty() -> mimeType
+            else -> "*/*"
+          }
+
           val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "application/pdf"
+            type = resolvedMime
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(Intent.EXTRA_SUBJECT, filename)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
           }
 
-          startActivity(Intent.createChooser(intent, "مشاركة المستند / Share Document"))
+          startActivity(Intent.createChooser(intent, "مشاركة / Share"))
         } catch (e: Exception) {
           Toast.makeText(this@MainActivity, "خطأ في مشاركة الملف: ${e.message}", Toast.LENGTH_LONG).show()
         }
@@ -205,35 +218,57 @@ class MainActivity : TauriActivity() {
     }
 
     /**
-     * Saves PDF file directly to Android Downloads folder and shows notification
+     * Saves PDF or image files directly to Android Downloads/Pictures folder
      */
     @JavascriptInterface
     fun savePdfToDownloads(base64Data: String, filename: String): Boolean {
+      return saveFileToDownloads(base64Data, filename, "application/pdf")
+    }
+
+    @JavascriptInterface
+    fun saveFileToDownloads(base64Data: String, filename: String, mimeType: String): Boolean {
       try {
         val cleanBase64 = if (base64Data.contains(",")) base64Data.substringAfter(",") else base64Data
         val bytes = android.util.Base64.decode(cleanBase64, android.util.Base64.DEFAULT)
 
+        val isImage = filename.endsWith(".jpg", true) || filename.endsWith(".jpeg", true) || filename.endsWith(".png", true)
+        val resolvedMime = when {
+          filename.endsWith(".jpg", true) || filename.endsWith(".jpeg", true) -> "image/jpeg"
+          filename.endsWith(".png", true) -> "image/png"
+          filename.endsWith(".pdf", true) -> "application/pdf"
+          mimeType.isNotEmpty() -> mimeType
+          else -> "application/octet-stream"
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+          val collection = if (isImage) MediaStore.Images.Media.EXTERNAL_CONTENT_URI else MediaStore.Downloads.EXTERNAL_CONTENT_URI
+          val relPath = if (isImage) Environment.DIRECTORY_PICTURES + "/OtiumScan" else Environment.DIRECTORY_DOWNLOADS
           val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
-            put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+            put(MediaStore.MediaColumns.MIME_TYPE, resolvedMime)
+            put(MediaStore.MediaColumns.RELATIVE_PATH, relPath)
           }
           val resolver = contentResolver
-          val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+          val uri = resolver.insert(collection, values)
           if (uri != null) {
             resolver.openOutputStream(uri)?.use { it.write(bytes) }
             runOnUiThread {
-              Toast.makeText(this@MainActivity, "✓ تم حفظ $filename في مجلد التنزيلات", Toast.LENGTH_LONG).show()
+              val loc = if (isImage) "معرض الصور (Pictures/OtiumScan)" else "مجلد التنزيلات"
+              Toast.makeText(this@MainActivity, "✓ تم حفظ $filename في $loc", Toast.LENGTH_LONG).show()
             }
             return true
           }
         } else {
-          val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-          val file = File(downloadsDir, filename)
+          val baseDir = if (isImage) {
+            File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "OtiumScan")
+          } else {
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+          }
+          baseDir.mkdirs()
+          val file = File(baseDir, filename)
           file.writeBytes(bytes)
           runOnUiThread {
-            Toast.makeText(this@MainActivity, "✓ تم حفظ $filename في مجلد التنزيلات", Toast.LENGTH_LONG).show()
+            Toast.makeText(this@MainActivity, "✓ تم حفظ $filename بنجاح", Toast.LENGTH_LONG).show()
           }
           return true
         }

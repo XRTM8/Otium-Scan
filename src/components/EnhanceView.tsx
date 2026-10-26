@@ -12,7 +12,7 @@ import { saveDocumentToLibrary } from '../core/storage/documentLibrary';
 import { dewarpBookCurvature } from '../core/geometry';
 import { performOcr } from '../core/ocr/ocrEngine';
 import { detectBarcodesFromCanvas, DetectedBarcode } from '../core/barcode';
-import { nativeSharePdf, nativeSavePdf, nativeOpenInOtium, downloadBlob } from '../core/nativeBridge';
+import { nativeSharePdf, nativeSavePdf, nativeOpenInOtium, nativeSaveImage } from '../core/nativeBridge';
 import { SignatureModal } from './SignatureModal';
 import { OtiumLogo } from './OtiumLogo';
 import {
@@ -190,18 +190,8 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
       const blob = await new Promise<Blob | null>((res) => processed.toBlob(res, 'image/jpeg', 0.92));
       if (!blob) return;
 
-      const jpgFile = new File([blob], filename, { type: 'image/jpeg' });
-      if (navigator.canShare && navigator.canShare({ files: [jpgFile] })) {
-        await navigator.share({
-          files: [jpgFile],
-          title: filename,
-          text: `Page ${safeIndex + 1} from ${docTitle.trim() || 'Otium Scan'}`,
-        });
-        setToastMsg(`Shared Page ${safeIndex + 1}`);
-      } else {
-        downloadBlob(blob, filename);
-        setToastMsg(`Page ${safeIndex + 1} saved as JPG`);
-      }
+      await nativeSaveImage(blob, filename);
+      setToastMsg(`✓ تم حفظ صفحة ${safeIndex + 1} في الصور`);
       setTimeout(() => setToastMsg(''), 2200);
     } catch (e) {
       console.warn('JPG export failed:', e);

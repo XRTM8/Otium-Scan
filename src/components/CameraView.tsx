@@ -13,6 +13,7 @@ import {
 import { OtiumLogo } from './OtiumLogo';
 import { playShutterSound } from '../core/audio';
 import { mergeIdCardSidesToA4 } from '../core/idCard';
+import { calculateLaplacianSharpness } from '../core/edgeDetection';
 
 interface CameraViewProps {
   onCapture: (imageDataUrl: string, isBatchMode: boolean) => void;
@@ -334,6 +335,55 @@ export const CameraView: React.FC<CameraViewProps> = ({
       setCapturing(false);
     }
   }, [capturing, idCardStep, idFrontDataUrl, onCapture, pagesCount, scanMode, stream]);
+
+  // Enterprise Hands-Free Auto-Capture Engine
+  useEffect(() => {
+    if (!autoCaptureEnabled || hasPermission !== true) return;
+
+    let isChecking = false;
+    let steadyCount = 0;
+    let lastSharpness = 0;
+    let lastCaptureTime = 0;
+
+    const intervalId = setInterval(async () => {
+      const now = Date.now();
+      if (isChecking || capturing || now - lastCaptureTime < 2800) return;
+      const video = videoRef.current;
+      if (!video || video.videoWidth === 0 || video.videoHeight === 0) return;
+
+      isChecking = true;
+      try {
+        const testCanvas = document.createElement('canvas');
+        testCanvas.width = 160;
+        testCanvas.height = Math.round(160 * (video.videoHeight / video.videoWidth));
+        const ctx = testCanvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, testCanvas.width, testCanvas.height);
+          const currentSharpness = calculateLaplacianSharpness(testCanvas);
+
+          // Focus check: sharp image with minimal motion blur
+          if (currentSharpness > 45 && Math.abs(currentSharpness - lastSharpness) < 25) {
+            steadyCount++;
+            if (steadyCount >= 2) {
+              steadyCount = 0;
+              lastCaptureTime = Date.now();
+              setCaptureToast('🎯 ثبات تام — التقاط تلقائي');
+              await handleCapture();
+            }
+          } else {
+            steadyCount = 0;
+          }
+          lastSharpness = currentSharpness;
+        }
+      } catch (e) {
+        console.warn('Auto-capture check error:', e);
+      } finally {
+        isChecking = false;
+      }
+    }, 450);
+
+    return () => clearInterval(intervalId);
+  }, [autoCaptureEnabled, hasPermission, capturing, handleCapture]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
