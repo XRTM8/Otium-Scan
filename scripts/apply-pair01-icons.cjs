@@ -123,7 +123,7 @@ async function generateSuite(masterImagePath, targetBaseDir, isTauriProject = fa
 }
 
 async function run() {
-  const masterScan = 'C:/Users/mjd20/.gemini/antigravity/brain/d22cdf39-aaa4-43b8-92f8-2397d9328ee4/otium_scan_master_icon_fullbleed_1793018330144.jpg';
+  const masterScan = 'C:/Users/mjd20/.gemini/antigravity/brain/0fd649cf-1b28-456c-975f-f12ac69e0d38/otium_scan_master_icon_1793026766738.jpg';
   const masterReader = 'C:/Users/mjd20/.gemini/antigravity/brain/d22cdf39-aaa4-43b8-92f8-2397d9328ee4/otium_reader_master_icon_1793018480236.jpg';
 
   console.log('Generating Otium Scan PAIR 01 production icons...');

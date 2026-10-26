@@ -1103,7 +1103,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
         <div className="flex items-center justify-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
           {(
             [
-              { id: 'magic', label: 'سحري ناصع (كام سكانر)', icon: Sparkles },
+              { id: 'magic', label: 'ورق ناصع', icon: Sparkles },
               { id: 'vibrant', label: 'ملون فائق', icon: Palette },
               { id: 'bw', label: 'أبيض وأسود' },
               { id: 'grayscale', label: 'رمادي' },
@@ -1118,7 +1118,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
                 onClick={() => handleFilterSelect(item.id)}
                 className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
                   isActive
-                    ? 'bg-emerald-500 text-black font-semibold shadow-md emerald-glow'
+                    ? 'bg-emerald-500 text-black font-semibold shadow-md ring-1 ring-emerald-300'
                     : 'glass-button text-gray-300'
                 }`}
               >
@@ -1179,21 +1179,28 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
         </div>
 
         {/* Estimated Size & Advanced PDF Settings Shortcut */}
-        <div className="flex items-center justify-between px-1 text-xs text-gray-400">
+        <div className="flex items-center justify-between px-1 text-xs text-gray-400 gap-2">
           <button
             onClick={() => {
               triggerHaptic(15);
               setIsAdvancedOptionsOpen(true);
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.1] text-gray-200 text-xs font-semibold active:scale-95 transition-all shadow-sm"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.1] text-gray-200 text-xs font-semibold active:scale-95 transition-all shadow-sm shrink-0"
             title="خيارات حجم وضغط الـ PDF ومقاس A4 وثنية الكتب"
           >
-            <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400" />
-            <span>إعدادات PDF المتقدمة (A4 • الحجم • الكتب)</span>
+            <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span className="whitespace-nowrap">خيارات PDF (A4)</span>
           </button>
 
-          <span className="text-[11px] text-gray-400">
-            الحجم: <span className="text-emerald-400 font-bold font-mono">{compressionPreset === 'compact' ? `${Math.round(pages.length * 35)} KB` : compressionPreset === 'balanced' ? `${(pages.length * 0.18).toFixed(1)} MB` : `${(pages.length * 0.85).toFixed(1)} MB`}</span>
+          <span className="text-[11px] text-gray-400 flex items-center gap-1 shrink-0">
+            <span>الحجم التقريبي:</span>
+            <span dir="ltr" className="text-emerald-400 font-bold font-mono inline-block">
+              {compressionPreset === 'compact'
+                ? `${Math.round(pages.length * 35)} KB`
+                : compressionPreset === 'balanced'
+                ? `${(pages.length * 0.18).toFixed(1)} MB`
+                : `${(pages.length * 0.85).toFixed(1)} MB`}
+            </span>
           </span>
         </div>
 

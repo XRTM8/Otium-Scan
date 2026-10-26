@@ -22,7 +22,6 @@ import { playShutterSound } from '../core/audio';
 import { mergeIdCardSidesToA4 } from '../core/idCard';
 import { calculateLaplacianSharpness, detectDocumentCorners, getFullFrameQuad } from '../core/edgeDetection';
 import { Point, Quad, CropMode } from '../core/types';
-import { APP_CURRENT_VERSION } from '../core/updater';
 
 interface CameraViewProps {
   onCapture: (imageDataUrl: string, isBatchMode: boolean, detectedQuad?: Quad) => void;
@@ -821,11 +820,10 @@ export const CameraView: React.FC<CameraViewProps> = ({
               onOpenSettings?.();
             }}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.1] active:scale-95 transition-all text-xs"
-            title="الإعدادات والتحقق من التحديثات"
+            title="الإعدادات والتحديثات"
           >
             <Settings className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-[11px] font-mono text-gray-300 font-bold">v{APP_CURRENT_VERSION}</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-xs font-bold text-gray-200">الإعدادات</span>
           </button>
         </div>
 
@@ -904,77 +902,80 @@ export const CameraView: React.FC<CameraViewProps> = ({
           }`}
         />
 
-        {/* 2D Gyroscope Spirit Level Bubble */}
-        <div className="absolute top-4 left-4 z-20 pointer-events-none flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10 shadow-lg">
-          <div className="relative w-4 h-4 rounded-full border border-white/30 flex items-center justify-center">
-            <div
-              style={{
-                transform: `translate(${tiltAngle.x * 4}px, ${tiltAngle.y * 4}px)`,
-              }}
-              className={`w-1.5 h-1.5 rounded-full transition-transform duration-75 ${
-                tiltAngle.isLevel ? 'bg-emerald-400 shadow-sm shadow-emerald-400' : 'bg-yellow-400'
-              }`}
-            />
+        {/* Unified Top Viewfinder HUD */}
+        <div className="absolute top-3 inset-x-0 z-20 flex items-center justify-between px-3 gap-1.5 pointer-events-none">
+          {/* Left: 2D Gyroscope Spirit Level Bubble */}
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/75 backdrop-blur-md border border-white/10 shadow-lg pointer-events-auto shrink-0">
+            <div className="relative w-3.5 h-3.5 rounded-full border border-white/30 flex items-center justify-center">
+              <div
+                style={{
+                  transform: `translate(${tiltAngle.x * 3}px, ${tiltAngle.y * 3}px)`,
+                }}
+                className={`w-1.5 h-1.5 rounded-full transition-transform duration-75 ${
+                  tiltAngle.isLevel ? 'bg-emerald-400 shadow-sm shadow-emerald-400' : 'bg-yellow-400'
+                }`}
+              />
+            </div>
+            <span className={`text-[10px] font-bold font-arabic ${tiltAngle.isLevel ? 'text-emerald-400' : 'text-gray-400'}`}>
+              {tiltAngle.isLevel ? 'مستوى مثالي' : 'اضبط الزاوية'}
+            </span>
           </div>
-          <span className={`text-[10px] font-bold font-arabic ${tiltAngle.isLevel ? 'text-emerald-400' : 'text-gray-400'}`}>
-            {tiltAngle.isLevel ? 'مستوى مثالي' : 'اضبط الزاوية'}
-          </span>
-        </div>
 
-        {/* Viewfinder Aspect Fit Switcher (WYSIWYG 100% vs Full Screen) */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            handleToggleViewfinderFit();
-          }}
-          className={`absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full backdrop-blur-md shadow-lg transition-all active:scale-95 font-arabic select-none ${
-            viewfinderFit === 'contain'
-              ? 'bg-black/80 text-emerald-300 border border-emerald-500/50 shadow-black/60 hover:bg-black/90'
-              : 'bg-black/80 text-gray-300 border border-white/10 shadow-black/60 hover:bg-black/90'
-          }`}
-          title={
-            viewfinderFit === 'contain'
-              ? 'وضع كامل الحساس مفعل (WYSIWYG): ما تراه في الشاشة هو ما يُلتقط 100% — انقر للتوسيع لملء الشاشة'
-              : 'وضع ملء الشاشة مفعل: الصورة ممتدة على الشاشة — انقر للتبديل لعرض كامل الحساس 100%'
-          }
-        >
-          <ScanLine className="w-3.5 h-3.5 text-emerald-400" />
-          <span className="text-[11px] font-bold">
-            {viewfinderFit === 'contain' ? 'الحساس 100%' : 'ملء الشاشة'}
-          </span>
-        </button>
-
-        {/* Crop Mode Switcher Badge (Full Frame vs Smart Crop) */}
-        {scanMode !== 'idcard' && (
+          {/* Center: Viewfinder Aspect Fit Switcher */}
           <button
             onClick={(e) => {
               e.stopPropagation();
-              handleToggleCropMode();
+              handleToggleViewfinderFit();
             }}
-            className={`absolute top-4 right-4 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full backdrop-blur-md shadow-lg transition-all active:scale-95 font-arabic select-none ${
-              cropMode === 'full'
-                ? 'bg-emerald-950/85 text-emerald-300 border border-emerald-500/50 shadow-emerald-950/40 hover:bg-emerald-900/80'
-                : 'bg-black/80 text-amber-300 border border-amber-500/40 shadow-black/60 hover:bg-black/90'
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-full backdrop-blur-md shadow-lg transition-all active:scale-95 font-arabic select-none pointer-events-auto shrink-0 ${
+              viewfinderFit === 'contain'
+                ? 'bg-black/80 text-emerald-300 border border-emerald-500/50'
+                : 'bg-black/80 text-gray-300 border border-white/10'
             }`}
             title={
-              cropMode === 'full'
-                ? 'وضع كامل الإطار مفعل (يمنع اقتطاع النصوص نهائياً) — انقر للتبديل للتحديد الذكي وقص الخلفية'
-                : 'وضع التحديد الذكي مفعل (قص الخلفية المحيطة) — انقر للتبديل إلى كامل الإطار'
+              viewfinderFit === 'contain'
+                ? 'وضع كامل الحساس مفعل (WYSIWYG) — انقر للتوسيع لملء الشاشة'
+                : 'وضع ملء الشاشة مفعل — انقر للتبديل لعرض كامل الحساس 100%'
             }
           >
-            {cropMode === 'full' ? (
-              <>
-                <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="text-[11px] font-bold">كامل الإطار (يدوي)</span>
-              </>
-            ) : (
-              <>
-                <Crop className="w-3.5 h-3.5 text-amber-400" />
-                <span className="text-[11px] font-bold">تحديد ذكي (قص الخلفية)</span>
-              </>
-            )}
+            <ScanLine className="w-3 h-3 text-emerald-400" />
+            <span className="text-[10px] font-bold whitespace-nowrap">
+              {viewfinderFit === 'contain' ? 'الحساس 100%' : 'ملء الشاشة'}
+            </span>
           </button>
-        )}
+
+          {/* Right: Crop Mode Switcher */}
+          {scanMode !== 'idcard' && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleToggleCropMode();
+              }}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-full backdrop-blur-md shadow-lg transition-all active:scale-95 font-arabic select-none pointer-events-auto shrink-0 ${
+                cropMode === 'full'
+                  ? 'bg-black/80 text-emerald-300 border border-emerald-500/50'
+                  : 'bg-black/80 text-amber-300 border border-amber-500/50'
+              }`}
+              title={
+                cropMode === 'full'
+                  ? 'وضع كامل الإطار مفعل — انقر للتبديل للتحديد الذكي'
+                  : 'وضع التحديد الذكي مفعل — انقر للتبديل إلى كامل الإطار'
+              }
+            >
+              {cropMode === 'full' ? (
+                <>
+                  <Maximize2 className="w-3 h-3 text-emerald-400" />
+                  <span className="text-[10px] font-bold whitespace-nowrap">كامل الإطار</span>
+                </>
+              ) : (
+                <>
+                  <Crop className="w-3 h-3 text-amber-400" />
+                  <span className="text-[10px] font-bold whitespace-nowrap">تحديد ذكي</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
 
         {/* Tap-to-Focus Animated Reticle */}
         {focusPoint && (
@@ -1108,7 +1109,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
             }`}
           >
             <ScanLine className="w-3.5 h-3.5" />
-            <span>متعدد (تجميع PDF)</span>
+            <span>متعدد (دفعة)</span>
           </button>
 
           <button
