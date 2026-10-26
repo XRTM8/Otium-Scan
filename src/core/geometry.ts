@@ -9,15 +9,47 @@ export function orderCorners(pts: Point[]): Quad {
     throw new Error('Quad requires exactly 4 points');
   }
 
-  const sortedByY = [...pts].sort((a, b) => a.y - b.y);
-  const topPair = sortedByY.slice(0, 2).sort((a, b) => a.x - b.x);
-  const bottomPair = sortedByY.slice(2, 4).sort((a, b) => a.x - b.x);
+  // Classic CV quadrilateral corner assignment:
+  // topLeft has min (x + y), bottomRight has max (x + y)
+  // topRight has min (y - x), bottomLeft has max (y - x)
+  let tl = pts[0];
+  let br = pts[0];
+  let tr = pts[0];
+  let bl = pts[0];
+
+  let minSum = pts[0].x + pts[0].y;
+  let maxSum = minSum;
+  let minDiff = pts[0].y - pts[0].x;
+  let maxDiff = minDiff;
+
+  for (let i = 1; i < 4; i++) {
+    const pt = pts[i];
+    const sum = pt.x + pt.y;
+    const diff = pt.y - pt.x;
+
+    if (sum < minSum) {
+      minSum = sum;
+      tl = pt;
+    }
+    if (sum > maxSum) {
+      maxSum = sum;
+      br = pt;
+    }
+    if (diff < minDiff) {
+      minDiff = diff;
+      tr = pt;
+    }
+    if (diff > maxDiff) {
+      maxDiff = diff;
+      bl = pt;
+    }
+  }
 
   return {
-    topLeft: topPair[0],
-    topRight: topPair[1],
-    bottomLeft: bottomPair[0],
-    bottomRight: bottomPair[1],
+    topLeft: { x: tl.x, y: tl.y },
+    topRight: { x: tr.x, y: tr.y },
+    bottomRight: { x: br.x, y: br.y },
+    bottomLeft: { x: bl.x, y: bl.y },
   };
 }
 

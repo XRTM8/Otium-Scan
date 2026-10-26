@@ -23,8 +23,6 @@ import {
   UploadCloud,
   CheckCircle2,
   Camera,
-  Sparkles,
-  Shield,
 } from 'lucide-react';
 
 interface LibraryModalProps {
@@ -428,57 +426,32 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose }) =
       )}
 
       {/* Document List / Empty Vault Showcase */}
-      <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
+      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
         {filteredDocs.length === 0 ? (
-          <div className="h-full min-h-[360px] flex flex-col items-center justify-center text-center px-4">
-            {/* Ambient Glowing Halo & Otium Mark */}
-            <div className="relative mb-6 flex items-center justify-center">
-              <div className="absolute w-32 h-32 rounded-full bg-emerald-500/10 blur-2xl pointer-events-none" />
-              <div className="relative w-20 h-20 rounded-3xl otium-card flex items-center justify-center border border-white/[0.12] shadow-2xl">
-                <OtiumLogo size={42} className="text-emerald-400 drop-shadow-[0_0_12px_rgba(16,185,129,0.5)]" />
-              </div>
+          <div className="h-full min-h-[300px] flex flex-col items-center justify-center text-center px-4">
+            <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mb-4">
+              <OtiumLogo size={32} className="text-emerald-400" />
             </div>
 
-            <h3 className="text-lg font-bold text-white tracking-wide">
-              {searchQuery ? 'لا توجد نتائج مطابقة' : 'خزنة أو تيوم للمستندات'}
+            <h3 className="text-base font-bold text-white font-arabic">
+              {searchQuery ? 'لا توجد نتائج مطابقة' : 'لا توجد مستندات محفوظة بعد'}
             </h3>
-            <p className="text-xs text-gray-400 mt-2 max-w-xs leading-relaxed">
+            <p className="text-xs text-gray-400 mt-1.5 max-w-xs leading-relaxed font-arabic">
               {searchQuery
                 ? 'جرب البحث بكلمة أخرى أو اسم مختلف.'
-                : 'عقودك وأوراقك ممسوحة ضوئياً ومخزنة محلياً ومشفرة 100% على هاتفك بدون أي خوادم سحابية.'}
+                : 'عند مسح المستندات وتصديرها كملف PDF، سيتم حفظها تلقائياً هنا في الخزنة للوصول السريع والمشاركة.'}
             </p>
 
-            {/* Trust Badges */}
-            {!searchQuery && (
-              <div className="flex flex-wrap items-center justify-center gap-2 mt-5 max-w-sm">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium bg-white/[0.04] border border-white/[0.08] text-gray-300">
-                  <Shield className="w-3 h-3 text-emerald-400" />
-                  <span>تشفير محلي SHA-256</span>
-                </span>
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium bg-white/[0.04] border border-white/[0.08] text-gray-300">
-                  <Sparkles className="w-3 h-3 text-amber-400" />
-                  <span>A4 ISO قياسي</span>
-                </span>
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium bg-white/[0.04] border border-white/[0.08] text-gray-300">
-                  <OtiumLogo size={12} className="text-sky-400" />
-                  <span>متوافق مع Otium Reader</span>
-                </span>
-              </div>
-            )}
-
-            {/* Quick Action CTA */}
-            {!searchQuery && (
-              <button
-                onClick={() => {
-                  triggerHaptic(20);
-                  onClose();
-                }}
-                className="mt-6 flex items-center gap-2 px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs shadow-lg shadow-emerald-500/25 active:scale-95 transition-all"
-              >
-                <Camera className="w-4 h-4" />
-                <span>بدء مسح مستند جديد الآن</span>
-              </button>
-            )}
+            <button
+              onClick={() => {
+                triggerHaptic(20);
+                onClose();
+              }}
+              className="mt-5 flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 text-black font-bold text-xs active:scale-95 transition-transform emerald-glow shadow-lg font-arabic"
+            >
+              <Camera className="w-4 h-4" />
+              <span>مسح مستند جديد</span>
+            </button>
           </div>
         ) : (
           filteredDocs.map((doc) => (

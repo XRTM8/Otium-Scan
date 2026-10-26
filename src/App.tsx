@@ -9,6 +9,7 @@ import {
   storePageToDisk,
   clearScanSession,
   rotateStoredPage,
+  loadOriginalDataUrlFromDisk,
 } from './core/storage/pageStore';
 import { detectDocumentCorners } from './core/edgeDetection';
 import { warpPerspective } from './core/geometry';
@@ -133,7 +134,21 @@ export const App: React.FC = () => {
     }
 
     setCurrentRawImage('');
+    // Single mode or recrop always goes directly to review to see the document!
     setStep('review');
+  };
+
+  const handleEditCrop = async (index: number) => {
+    const page = pages[index];
+    if (!page) return;
+    try {
+      const originalDataUrl = await loadOriginalDataUrlFromDisk(page.id);
+      setCurrentRawImage(originalDataUrl);
+      setRetakeTargetIndex(index);
+      setStep('crop');
+    } catch (e) {
+      console.warn('Could not load original image for crop:', e);
+    }
   };
 
   const handleCropCancel = () => {
@@ -226,6 +241,7 @@ export const App: React.FC = () => {
           onMovePage={handleMovePage}
           onRetakePage={handleRetakePage}
           onRotatePage={handleRotatePage}
+          onEditCrop={handleEditCrop}
           onResetAll={handleResetAll}
         />
       )}

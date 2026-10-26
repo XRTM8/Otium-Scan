@@ -2,7 +2,7 @@ import React, { useRef, useState, useCallback } from 'react';
 import { Point, Quad } from '../core/types';
 import { getDefaultQuad, warpPerspective } from '../core/geometry';
 import { detectDocumentCorners } from '../core/edgeDetection';
-import { Check, RotateCcw, X, Wand2, RotateCw } from 'lucide-react';
+import { Check, RotateCcw, X, Wand2, RotateCw, Maximize2 } from 'lucide-react';
 
 interface CropViewProps {
   imageSrc: string;
@@ -53,10 +53,26 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
     setQuad(detected);
   };
 
+  const handleSelectFullImage = () => {
+    if (imageSize.width === 0 || imageSize.height === 0) return;
+    triggerHaptic(15);
+    setQuad({
+      topLeft: { x: 0, y: 0 },
+      topRight: { x: imageSize.width, y: 0 },
+      bottomRight: { x: imageSize.width, y: imageSize.height },
+      bottomLeft: { x: 0, y: imageSize.height },
+    });
+  };
+
+  const handleResetQuad = () => {
+    triggerHaptic(15);
+    setQuad(getDefaultQuad(imageSize.width, imageSize.height));
+  };
+
   // Map viewport client coords to natural image coords
   const clientToImageCoords = useCallback(
     (clientX: number, clientY: number): Point => {
-      if (!imageRef.current) return { x: 0, y: 0 };
+      if (!imageRef.current || imageSize.width === 0) return { x: 0, y: 0 };
       const rect = imageRef.current.getBoundingClientRect();
       const scaleX = imageSize.width / rect.width;
       const scaleY = imageSize.height / rect.height;
@@ -110,14 +126,13 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!quad) return;
 
-    // Corner dragging with magnetic snapping
+    // Corner dragging with magnetic edge snapping
     if (activeCorner) {
       e.preventDefault();
       setPointerPos({ x: e.clientX, y: e.clientY });
       const imgCoord = clientToImageCoords(e.clientX, e.clientY);
 
-      // Magnetic Snapping to natural borders (within 22px)
-      const SNAP = 22;
+      const SNAP = 24;
       if (Math.abs(imgCoord.x - 0) < SNAP) {
         imgCoord.x = 0;
         triggerHaptic(8);
@@ -138,7 +153,7 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
       return;
     }
 
-    // Edge Midpoint dragging (translates entire edge segment)
+    // Edge Midpoint dragging
     if (activeEdge && edgeDragStart && imageRef.current) {
       e.preventDefault();
       setPointerPos({ x: e.clientX, y: e.clientY });
@@ -199,7 +214,6 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
     if (!imageRef.current || !quad) return;
     triggerHaptic(20);
 
-    // If rotated, rotate source first onto a temporary canvas
     let srcCanvas: HTMLCanvasElement | HTMLImageElement = imageRef.current;
     if (rotation !== 0) {
       const rotCanvas = document.createElement('canvas');
@@ -219,11 +233,6 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
     onConfirm(warped, quad);
   };
 
-  const handleResetQuad = () => {
-    triggerHaptic(15);
-    setQuad(getDefaultQuad(imageSize.width, imageSize.height));
-  };
-
   const renderPolyPoints = () => {
     if (!quad) return '';
     const tl = imageToClientCoords(quad.topLeft);
@@ -233,37 +242,24 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
     return `${tl.x},${tl.y} ${tr.x},${tr.y} ${br.x},${br.y} ${bl.x},${bl.y}`;
   };
 
-  // Determine active focus coordinate for the 2.5x Magnifying Loupe
+  // Loupe target coordinates
   let loupeTargetPt: Point | null = null;
   if (quad) {
     if (activeCorner) {
       loupeTargetPt = quad[activeCorner];
     } else if (activeEdge) {
       if (activeEdge === 'top') {
-        loupeTargetPt = {
-          x: (quad.topLeft.x + quad.topRight.x) / 2,
-          y: (quad.topLeft.y + quad.topRight.y) / 2,
-        };
+        loupeTargetPt = { x: (quad.topLeft.x + quad.topRight.x) / 2, y: (quad.topLeft.y + quad.topRight.y) / 2 };
       } else if (activeEdge === 'right') {
-        loupeTargetPt = {
-          x: (quad.topRight.x + quad.bottomRight.x) / 2,
-          y: (quad.topRight.y + quad.bottomRight.y) / 2,
-        };
+        loupeTargetPt = { x: (quad.topRight.x + quad.bottomRight.x) / 2, y: (quad.topRight.y + quad.bottomRight.y) / 2 };
       } else if (activeEdge === 'bottom') {
-        loupeTargetPt = {
-          x: (quad.bottomLeft.x + quad.bottomRight.x) / 2,
-          y: (quad.bottomLeft.y + quad.bottomRight.y) / 2,
-        };
+        loupeTargetPt = { x: (quad.bottomLeft.x + quad.bottomRight.x) / 2, y: (quad.bottomLeft.y + quad.bottomRight.y) / 2 };
       } else if (activeEdge === 'left') {
-        loupeTargetPt = {
-          x: (quad.topLeft.x + quad.bottomLeft.x) / 2,
-          y: (quad.topLeft.y + quad.bottomLeft.y) / 2,
-        };
+        loupeTargetPt = { x: (quad.topLeft.x + quad.bottomLeft.x) / 2, y: (quad.topLeft.y + quad.bottomLeft.y) / 2 };
       }
     }
   }
 
-  // Edge Midpoint positions in Client Coords
   const edgeMidpoints = quad
     ? {
         top: {
@@ -290,41 +286,50 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
       ref={containerRef}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      className="relative w-full h-full bg-[#07090e] flex flex-col justify-between overflow-hidden select-none"
+      className="relative w-full h-full bg-[#07090e] flex flex-col justify-between overflow-hidden select-none font-sans"
     >
       {/* Top Action Bar */}
-      <div className="relative z-30 flex items-center justify-between px-5 pt-12 pb-3.5 otium-chrome border-b border-white/[0.08]">
+      <div className="relative z-30 flex items-center justify-between px-4 pt-12 pb-3 otium-chrome border-b border-white/[0.08]">
         <button
           onClick={onCancel}
-          className="p-2.5 rounded-full glass-button text-gray-300 active:text-white"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full glass-button text-gray-300 active:text-white"
           title="إلغاء / Cancel"
         >
-          <X className="w-5 h-5" />
+          <X className="w-4 h-4" />
+          <span className="text-xs">إلغاء</span>
         </button>
 
-        <span className="text-xs font-bold tracking-wide text-gray-200">
-          تحديد حدود المستند
+        <span className="text-xs font-bold tracking-wide text-white font-arabic">
+          تحديد أبعاد المستند
         </span>
 
         <div className="flex items-center gap-1.5">
           <button
+            onClick={handleSelectFullImage}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-full glass-button text-emerald-400 active:scale-95 text-[11px] font-bold"
+            title="تحديد كامل الصورة / Full Image"
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
+            <span>الكل</span>
+          </button>
+          <button
             onClick={handleAutoDetect}
-            className="p-2.5 rounded-full glass-button text-emerald-400 active:scale-90"
-            title="تحديد ذكي / Smart Auto Detect"
+            className="p-2 rounded-full glass-button text-emerald-400 active:scale-90"
+            title="كشف ذكي / Auto Detect"
           >
             <Wand2 className="w-4 h-4" />
           </button>
           <button
             onClick={handleRotate}
-            className="p-2.5 rounded-full glass-button text-gray-300 active:scale-90"
+            className="p-2 rounded-full glass-button text-gray-300 active:scale-90"
             title="تدوير 90° / Rotate"
           >
             <RotateCw className="w-4 h-4" />
           </button>
           <button
             onClick={handleResetQuad}
-            className="p-2.5 rounded-full glass-button text-gray-300 active:text-emerald-400"
-            title="إعادة تعيين / Reset"
+            className="p-2 rounded-full glass-button text-gray-300 active:text-emerald-400"
+            title="إعادة ضبط / Reset"
           >
             <RotateCcw className="w-4 h-4" />
           </button>
@@ -332,25 +337,25 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
       </div>
 
       {/* Main Interactive Stage */}
-      <div className="relative flex-1 w-full h-full flex items-center justify-center p-4 overflow-hidden">
+      <div className="relative flex-1 w-full h-full flex items-center justify-center p-3 overflow-hidden">
         <img
           ref={imageRef}
           src={imageSrc}
           alt="Scan target"
           onLoad={handleImageLoad}
           style={{ transform: `rotate(${rotation}deg)` }}
-          className="max-w-full max-h-[72vh] object-contain rounded-lg shadow-2xl pointer-events-none transition-transform duration-200"
+          className="max-w-full max-h-[68vh] object-contain rounded-lg shadow-2xl pointer-events-none transition-transform duration-200"
         />
 
-        {/* SVG Quad Overlay with high-contrast boundary */}
+        {/* SVG Quad Overlay */}
         {quad && (
           <svg className="fixed inset-0 w-full h-full pointer-events-none z-20">
             <polygon
               points={renderPolyPoints()}
-              fill="rgba(16, 185, 129, 0.16)"
+              fill="rgba(16, 185, 129, 0.18)"
               stroke="#10B981"
               strokeWidth="2.5"
-              strokeDasharray="5 5"
+              strokeDasharray="6 4"
             />
           </svg>
         )}
@@ -367,18 +372,18 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
                 style={{
                   transform: `translate3d(${clientPt.x}px, ${clientPt.y}px, 0px) translate(-50%, -50%)`,
                 }}
-                className={`fixed z-30 w-14 h-14 flex items-center justify-center cursor-pointer touch-none transition-transform ${
-                  isTargeted ? 'scale-130' : 'active:scale-125'
+                className={`fixed z-30 w-12 h-12 flex items-center justify-center cursor-pointer touch-none transition-transform ${
+                  isTargeted ? 'scale-125' : 'active:scale-125'
                 }`}
               >
-                <div className="w-7 h-7 rounded-full bg-emerald-400 border-3 border-white shadow-xl flex items-center justify-center ring-4 ring-emerald-500/30">
-                  <div className="w-2 h-2 rounded-full bg-black" />
+                <div className="w-6 h-6 rounded-full bg-emerald-400 border-2 border-white shadow-xl flex items-center justify-center ring-4 ring-emerald-500/30">
+                  <div className="w-1.5 h-1.5 rounded-full bg-black" />
                 </div>
               </div>
             );
           })}
 
-        {/* 4 Edge Midpoint Handles (Single-swipe Edge Adjustment) */}
+        {/* 4 Edge Midpoint Handles */}
         {edgeMidpoints &&
           (['top', 'right', 'bottom', 'left'] as EdgeKey[]).map((edge) => {
             const pt = edgeMidpoints[edge];
@@ -395,14 +400,14 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
                 }`}
                 title={`Drag ${edge} edge`}
               >
-                <div className="w-6 h-3 rounded-full bg-emerald-500 border border-white/90 shadow-lg flex items-center justify-center">
-                  <div className="w-2.5 h-0.5 bg-black/80 rounded-full" />
+                <div className="w-6 h-2.5 rounded-full bg-emerald-500 border border-white/90 shadow-md flex items-center justify-center">
+                  <div className="w-2 h-0.5 bg-black/80 rounded-full" />
                 </div>
               </div>
             );
           })}
 
-        {/* Precision Magnifier Loupe (2.5x Zoom Floating Bubble) */}
+        {/* Precision Magnifier Loupe */}
         {pointerPos && loupeTargetPt && (
           <div
             style={{
@@ -422,34 +427,40 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
                 backgroundRepeat: 'no-repeat',
               }}
             />
-            {/* Center Crosshairs */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="w-full h-[1.5px] bg-emerald-400/80 shadow-sm" />
               <div className="absolute h-full w-[1.5px] bg-emerald-400/80 shadow-sm" />
               <div className="absolute w-3 h-3 rounded-full border-2 border-emerald-400 bg-emerald-400/20" />
             </div>
-            {/* Zoom Badge */}
-            <div className="absolute top-1.5 inset-x-0 flex justify-center pointer-events-none">
-              <span className="px-1.5 py-0.2 rounded-full bg-black/80 text-[9px] text-emerald-400 font-bold border border-emerald-500/30">
-                2.5x
-              </span>
-            </div>
           </div>
         )}
       </div>
 
-      <div className="relative z-30 flex items-center justify-between px-5 pt-4 pb-10 glass-panel border-t-0">
-        <div className="flex flex-col gap-0.5">
-          <span className="text-xs text-emerald-400 font-bold">اسحب الزوايا للضبط</span>
-          <span className="text-[10px] text-gray-500">أو اضغط ✦ للكشف التلقائي</span>
+      {/* Bottom Confirm Bar */}
+      <div className="relative z-30 flex items-center justify-between px-5 pt-3 pb-8 glass-panel border-t-0">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleSelectFullImage}
+            className="px-3 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.12] text-gray-200 text-xs font-bold active:scale-95 transition-all flex items-center gap-1.5"
+          >
+            <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
+            <span>كامل الصورة</span>
+          </button>
+          <button
+            onClick={handleAutoDetect}
+            className="px-3 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.12] text-gray-200 text-xs font-bold active:scale-95 transition-all flex items-center gap-1.5"
+          >
+            <Wand2 className="w-3.5 h-3.5 text-emerald-400" />
+            <span>كشف ذكي</span>
+          </button>
         </div>
 
         <button
           onClick={handleApply}
-          className="flex items-center gap-2 px-7 py-3.5 rounded-2xl bg-emerald-500 text-black font-black text-sm active:scale-95 transition-transform emerald-glow shadow-xl"
+          className="flex items-center gap-2 px-7 py-3 rounded-2xl bg-emerald-500 text-black font-black text-sm active:scale-95 transition-transform emerald-glow shadow-xl"
         >
           <Check className="w-5 h-5 stroke-[3]" />
-          <span>تطبيق</span>
+          <span>تطبيق القص</span>
         </button>
       </div>
     </div>

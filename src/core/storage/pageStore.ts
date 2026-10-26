@@ -105,6 +105,27 @@ export async function storePageToDisk(
 /**
  * Loads a filtered canvas for a specific page from disk
  */
+export async function loadOriginalDataUrlFromDisk(id: string): Promise<string> {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const store = tx.objectStore(STORE_NAME);
+    const req = store.get(id);
+    req.onsuccess = () => {
+      const record = req.result as StoredPageRecord | undefined;
+      if (!record) {
+        reject(new Error(`Page not found: ${id}`));
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(record.originalBlob);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
 export async function loadPageCanvasFromDisk(id: string): Promise<HTMLCanvasElement> {
   const db = await getDB();
 

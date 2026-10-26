@@ -1,7 +1,9 @@
 package com.otium.scan
 
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
@@ -11,13 +13,52 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResult
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 
 class MainActivity : TauriActivity() {
   private var filePickerCallback: ValueCallback<Array<Uri>>? = null
+  private var pendingPermissionRequest: PermissionRequest? = null
+
+  companion object {
+    private const val CAMERA_PERMISSION_REQUEST_CODE = 1001
+  }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    ensureCameraPermissions()
+  }
+
+  private fun ensureCameraPermissions() {
+    if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+      ActivityCompat.requestPermissions(
+        this,
+        arrayOf(Manifest.permission.CAMERA),
+        CAMERA_PERMISSION_REQUEST_CODE
+      )
+    }
+  }
+
+  override fun onRequestPermissionsResult(
+    requestCode: Int,
+    permissions: Array<out String>,
+    grantResults: IntArray
+  ) {
+    super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
+      if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+        pendingPermissionRequest?.let {
+          it.grant(it.resources)
+          pendingPermissionRequest = null
+        }
+      } else {
+        pendingPermissionRequest?.let {
+          it.deny()
+          pendingPermissionRequest = null
+        }
+      }
+    }
   }
 
   override fun onWebViewCreate(webView: WebView) {
@@ -27,18 +68,24 @@ class MainActivity : TauriActivity() {
 
     webView.webChromeClient = object : WebChromeClient() {
       override fun onPermissionRequest(request: PermissionRequest) {
-        if (originalChromeClient != null) {
-          originalChromeClient.onPermissionRequest(request)
-        } else {
-          super.onPermissionRequest(request)
+        runOnUiThread {
+          // If the web application requests camera access, grant immediately if OS permission is granted
+          if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            request.grant(request.resources)
+          } else {
+            pendingPermissionRequest = request
+            ActivityCompat.requestPermissions(
+              this@MainActivity,
+              arrayOf(Manifest.permission.CAMERA),
+              CAMERA_PERMISSION_REQUEST_CODE
+            )
+          }
         }
       }
 
       override fun onPermissionRequestCanceled(request: PermissionRequest) {
-        if (originalChromeClient != null) {
-          originalChromeClient.onPermissionRequestCanceled(request)
-        } else {
-          super.onPermissionRequestCanceled(request)
+        if (pendingPermissionRequest == request) {
+          pendingPermissionRequest = null
         }
       }
 

@@ -27,6 +27,7 @@ import {
   Search,
   RotateCcw,
   RotateCw,
+  Crop,
   Edit3,
   PenTool,
   CheckCircle2,
@@ -50,6 +51,7 @@ interface EnhanceViewProps {
   onMovePage: (fromIndex: number, toIndex: number) => void;
   onRetakePage: (index: number) => void;
   onRotatePage: (index: number) => Promise<void>;
+  onEditCrop?: (index: number) => void;
   onResetAll: () => void;
 }
 
@@ -61,6 +63,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
   onMovePage,
   onRetakePage,
   onRotatePage,
+  onEditCrop,
 }) => {
   const [currentPageIndex, setCurrentPageIndex] = useState<number>(0);
   const [activeFilter, setActiveFilter] = useState<FilterType>('magic');
@@ -502,6 +505,18 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
             title="Sign this document"
           >
             <PenTool className="w-4 h-4" />
+          </button>
+
+          {/* Adjust Crop */}
+          <button
+            onClick={() => {
+              triggerHaptic(15);
+              onEditCrop?.(safeIndex);
+            }}
+            className="p-2 rounded-full glass-button text-gray-300 active:text-emerald-400"
+            title="تعديل القص / Crop"
+          >
+            <Crop className="w-4 h-4" />
           </button>
 
           {/* Rotate 90° Clockwise */}
