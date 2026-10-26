@@ -68,41 +68,70 @@ export const CameraView: React.FC<CameraViewProps> = ({
     return () => window.removeEventListener('deviceorientation', handleOrientation);
   }, []);
 
-  useEffect(() => {
-    let currentStream: MediaStream | null = null;
+  const initCamera = useCallback(async () => {
+    // Progressive fallback constraints for maximum Android device compatibility
+    const constraintList: MediaStreamConstraints[] = [
+      {
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920, max: 3840 },
+          height: { ideal: 1080, max: 2160 },
+        },
+        audio: false,
+      },
+      {
+        video: {
+          facingMode: 'environment',
+        },
+        audio: false,
+      },
+      {
+        video: true,
+        audio: false,
+      },
+    ];
 
-    async function initCamera() {
+    let acquiredStream: MediaStream | null = null;
+    for (const constraints of constraintList) {
       try {
-        const mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 4096 },
-            height: { ideal: 2160 },
-          },
-          audio: false,
-        });
-
-        currentStream = mediaStream;
-        setStream(mediaStream);
-        if (videoRef.current) {
-          videoRef.current.srcObject = mediaStream;
-          videoRef.current.play();
-        }
-        setHasPermission(true);
+        acquiredStream = await navigator.mediaDevices.getUserMedia(constraints);
+        if (acquiredStream) break;
       } catch (err) {
-        console.warn('Camera stream fallback to upload:', err);
-        setHasPermission(false);
+        console.warn('Camera constraint tier failed, falling back:', err);
       }
     }
 
-    initCamera();
-
-    return () => {
-      if (currentStream) {
-        currentStream.getTracks().forEach((t) => t.stop());
-      }
-    };
+    if (acquiredStream) {
+      setStream(acquiredStream);
+      setHasPermission(true);
+    } else {
+      console.warn('All camera constraints failed');
+      setHasPermission(false);
+    }
   }, []);
+
+  useEffect(() => {
+    initCamera();
+    return () => {
+      setStream((prevStream) => {
+        if (prevStream) {
+          prevStream.getTracks().forEach((track) => track.stop());
+        }
+        return null;
+      });
+    };
+  }, [initCamera]);
+
+  // Synchronize stream with video DOM element reliably
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video && stream) {
+      video.srcObject = stream;
+      video.play().catch((err) => {
+        console.warn('Video auto-play interrupted:', err);
+      });
+    }
+  }, [stream]);
 
   // Real-Time Computer Vision Loop (Live Quad Polygon & Laplacian Focus Gate)
   useEffect(() => {
@@ -320,11 +349,13 @@ export const CameraView: React.FC<CameraViewProps> = ({
       const reader = new FileReader();
       reader.onload = () => {
         if (typeof reader.result === 'string') {
-          onCapture(reader.result, false);
+          onCapture(reader.result, scanMode === 'batch');
         }
       };
       reader.readAsDataURL(file);
     }
+    // Reset file input value so user can pick the same file again if desired
+    e.target.value = '';
   };
 
   const toggleTorch = async () => {
@@ -457,19 +488,42 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
       {/* Main Viewfinder */}
       <div className="relative flex-1 w-full h-full flex items-center justify-center overflow-hidden">
-        {hasPermission ? (
-          <video
-            ref={videoRef}
-            playsInline
-            muted
-            className="absolute inset-0 w-full h-full object-cover"
-          />
-        ) : (
-          <div className="text-center px-6">
-            <Camera className="w-16 h-16 mx-auto mb-4 text-emerald-400/60" />
-            <p className="text-gray-300 text-sm mb-4">
-              Tap below to take a photo or import from your gallery
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          disablePictureInPicture
+          onLoadedMetadata={() => {
+            videoRef.current?.play().catch(console.warn);
+          }}
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+
+        {hasPermission === false && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/90 p-6 text-center z-30">
+            <Camera className="w-16 h-16 text-emerald-400 opacity-60" />
+            <h3 className="text-lg font-bold text-white">إذن الكاميرا مطلوب / Camera Access Required</h3>
+            <p className="text-xs text-gray-400 max-w-xs leading-relaxed">
+              يرجى منح صلاحية الكاميرا لمسح المستندات ضوئياً وحفظها بأعلى دقة، أو اختر صورة من الاستوديو.
             </p>
+            <div className="flex items-center gap-3 mt-2">
+              <button
+                onClick={() => {
+                  triggerHaptic(20);
+                  initCamera();
+                }}
+                className="px-5 py-2.5 bg-emerald-500 text-black font-semibold text-xs rounded-xl active:scale-95 transition-transform"
+              >
+                إعادة تفعيل الكاميرا / Retry Camera
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="px-4 py-2.5 glass-button text-gray-300 font-medium text-xs rounded-xl active:scale-95 transition-transform"
+              >
+                الاستوديو / Gallery
+              </button>
+            </div>
           </div>
         )}
 
