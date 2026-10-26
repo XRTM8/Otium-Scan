@@ -15,6 +15,8 @@ export type PdfCompressionPreset = 'compact' | 'balanced' | 'max';
 export type PdfPageFormat = 'a4' | 'fit';
 export type PdfWatermarkStyle = 'diagonal' | 'tiled';
 
+const textEncoder = new TextEncoder();
+
 /**
  * Enterprise Searchable PDF 1.4 Compiler with Smart Multi-Tier Compression
  * and Standard ISO A4 Page Normalization (595x842 pt).
@@ -32,17 +34,22 @@ export async function createPdfFromCanvases(
 
   const offsets: number[] = [];
 
-  // Convert canvases to optimized JPEG bytes based on compression tier
+  // Convert canvases to optimized JPEG bytes directly via ArrayBuffer
   const imageSpecs = await Promise.all(
     pages.map(async ({ canvas, words }) => {
       const { optCanvas, quality } = getOptimizedCanvas(canvas, compressionPreset);
-      const dataUrl = optCanvas.toDataURL('image/jpeg', quality);
-      const base64Data = dataUrl.split(',')[1];
-      const binaryStr = atob(base64Data);
-      const bytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
+
+      // Render high-fidelity Unicode/Arabic watermark directly onto canvas pixels
+      if (watermarkText && watermarkText.trim().length > 0) {
+        applyCanvasWatermark(optCanvas, watermarkText.trim(), watermarkStyle);
       }
+
+      const blob = await new Promise<Blob>((res) =>
+        optCanvas.toBlob((b) => res(b || new Blob()), 'image/jpeg', quality)
+      );
+      const buffer = await blob.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+
       return {
         width: optCanvas.width,
         height: optCanvas.height,
@@ -73,7 +80,7 @@ export async function createPdfFromCanvases(
 
   function writeText(str: string) {
     finalChunks.push(str);
-    byteOffset += new TextEncoder().encode(str).length;
+    byteOffset += textEncoder.encode(str).length;
   }
 
   function writeBytes(bytes: Uint8Array) {
@@ -158,23 +165,7 @@ export async function createPdfFromCanvases(
       contentStream += 'ET\n';
     }
 
-    // Diagonal or Tiled Security Watermark
-    if (watermarkText && watermarkText.trim().length > 0) {
-      const cleanWm = watermarkText.trim().replace(/[()\\]/g, '\\$&');
-      if (watermarkStyle === 'tiled') {
-        contentStream += 'q\n0.82 0.82 0.82 rg\nBT\n/F1 15 Tf\n';
-        for (let wy = -60; wy < pagePtHeight + 60; wy += 95) {
-          for (let wx = -60; wx < pagePtWidth + 60; wx += 140) {
-            contentStream += `0.7071 0.7071 -0.7071 0.7071 ${Math.round(wx)} ${Math.round(wy)} Tm (${cleanWm}) Tj\n`;
-          }
-        }
-        contentStream += 'ET\nQ\n';
-      } else {
-        contentStream += `q\n0.72 0.72 0.72 rg\nBT\n/F1 38 Tf\n0.7071 0.7071 -0.7071 0.7071 ${Math.round(pagePtWidth * 0.22)} ${Math.round(pagePtHeight * 0.32)} Tm\n(${cleanWm}) Tj\nET\nQ\n`;
-      }
-    }
-
-    const streamLen = new TextEncoder().encode(contentStream).length;
+    const streamLen = textEncoder.encode(contentStream).length;
 
     recordOffset(contentObjIdx);
     writeText(`${contentObjIdx} 0 obj\n<< /Length ${streamLen} >>\nstream\n${contentStream}endstream\nendobj\n`);
@@ -204,6 +195,40 @@ export async function createPdfFromCanvases(
   return new Blob(finalChunks as BlobPart[], { type: 'application/pdf' });
 }
 
+function applyCanvasWatermark(
+  canvas: HTMLCanvasElement,
+  text: string,
+  style: PdfWatermarkStyle
+): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const w = canvas.width;
+  const h = canvas.height;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(120, 120, 120, 0.22)';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  if (style === 'tiled') {
+    ctx.font = `bold ${Math.round(w * 0.042)}px 'Tajawal', sans-serif`;
+    ctx.rotate((-45 * Math.PI) / 180);
+    const stepX = Math.round(w * 0.4);
+    const stepY = Math.round(h * 0.18);
+    for (let y = -h; y < h * 2; y += stepY) {
+      for (let x = -w; x < w * 2; x += stepX) {
+        ctx.fillText(text, x, y);
+      }
+    }
+  } else {
+    ctx.font = `bold ${Math.round(w * 0.085)}px 'Tajawal', sans-serif`;
+    ctx.translate(w / 2, h / 2);
+    ctx.rotate((-45 * Math.PI) / 180);
+    ctx.fillText(text, 0, 0);
+  }
+  ctx.restore();
+}
+
 function getOptimizedCanvas(
   canvas: HTMLCanvasElement,
   preset: PdfCompressionPreset
@@ -218,8 +243,8 @@ function getOptimizedCanvas(
     maxDimension = 1900; // ~200 DPI
     quality = 0.78;
   } else {
-    maxDimension = 4000; // Uncapped
-    quality = 0.92;
+    maxDimension = 3200; // Optimal high-res print
+    quality = 0.90;
   }
 
   const w = canvas.width;
@@ -227,7 +252,13 @@ function getOptimizedCanvas(
   const currentMax = Math.max(w, h);
 
   if (currentMax <= maxDimension) {
-    return { optCanvas: canvas, quality };
+    // Clone canvas so watermark or modifications do not mutate source review page
+    const copyCanvas = document.createElement('canvas');
+    copyCanvas.width = w;
+    copyCanvas.height = h;
+    const ctx = copyCanvas.getContext('2d');
+    if (ctx) ctx.drawImage(canvas, 0, 0);
+    return { optCanvas: copyCanvas, quality };
   }
 
   const scale = maxDimension / currentMax;

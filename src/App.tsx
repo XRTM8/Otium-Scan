@@ -10,6 +10,7 @@ import {
   clearScanSession,
   rotateStoredPage,
   loadOriginalDataUrlFromDisk,
+  deleteStoredPage,
 } from './core/storage/pageStore';
 import { detectDocumentCorners } from './core/edgeDetection';
 import { warpPerspective } from './core/geometry';
@@ -164,6 +165,10 @@ export const App: React.FC = () => {
   };
 
   const handleDeletePage = (index: number) => {
+    const pageToDelete = pages[index];
+    if (pageToDelete) {
+      deleteStoredPage(pageToDelete.id).catch(console.warn);
+    }
     setPages((prev) => {
       const updated = prev.filter((_, i) => i !== index);
       if (updated.length === 0) {

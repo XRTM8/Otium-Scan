@@ -484,53 +484,6 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
             <PenTool className="w-4 h-4" />
           </button>
 
-          {/* Adjust Crop */}
-          <button
-            onClick={() => {
-              triggerHaptic(15);
-              onEditCrop?.(safeIndex);
-            }}
-            className="p-2 rounded-full glass-button text-gray-300 active:text-emerald-400"
-            title="تعديل القص / Crop"
-          >
-            <Crop className="w-4 h-4" />
-          </button>
-
-          {/* Rotate 90° Clockwise */}
-          <button
-            onClick={handleRotateCurrentPage}
-            className="p-2 rounded-full glass-button text-gray-300 active:text-emerald-400"
-            title="Rotate 90° Clockwise"
-          >
-            <RotateCw className="w-4 h-4" />
-          </button>
-
-          {/* Retake this page button */}
-          <button
-            onClick={() => {
-              triggerHaptic(15);
-              onRetakePage(safeIndex);
-            }}
-            className="p-2 rounded-full glass-button text-gray-300 active:text-emerald-400"
-            title="Retake this photo"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
-
-          {pages.length > 1 && (
-            <button
-              onClick={() => {
-                triggerHaptic(15);
-                onDeletePage(safeIndex);
-                if (safeIndex > 0) setCurrentPageIndex(safeIndex - 1);
-              }}
-              className="p-2 rounded-full glass-button text-red-400 active:scale-90"
-              title="Delete this page"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
-
           <button
             onClick={handleSharePdf}
             disabled={pdfGenerating}
@@ -842,6 +795,56 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
                   {ocrStatus || 'Compiling Optimized PDF...'}
                 </p>
               </div>
+            )}
+          </div>
+
+          {/* Floating Dedicated Page Actions Toolbar */}
+          <div className="absolute bottom-2 z-20 flex items-center gap-2 p-1.5 rounded-full bg-black/85 backdrop-blur-xl border border-white/15 shadow-2xl">
+            <button
+              onClick={() => {
+                triggerHaptic(15);
+                onEditCrop?.(safeIndex);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-xs font-bold active:scale-95 transition-transform"
+              title="تعديل القص / Crop"
+            >
+              <Crop className="w-3.5 h-3.5" />
+              <span>تعديل القص</span>
+            </button>
+
+            <button
+              onClick={handleRotateCurrentPage}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full glass-button text-gray-200 text-xs font-bold active:scale-95 transition-transform"
+              title="تدوير 90°"
+            >
+              <RotateCw className="w-3.5 h-3.5 text-gray-300" />
+              <span>تدوير</span>
+            </button>
+
+            <button
+              onClick={() => {
+                triggerHaptic(15);
+                onRetakePage(safeIndex);
+              }}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-full glass-button text-gray-300 text-xs font-medium active:scale-95 transition-transform"
+              title="إعادة التقاط هذه الصفحة"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>إعادة التقاط</span>
+            </button>
+
+            {pages.length > 1 && (
+              <button
+                onClick={() => {
+                  triggerHaptic(15);
+                  onDeletePage(safeIndex);
+                  if (safeIndex > 0) setCurrentPageIndex(safeIndex - 1);
+                }}
+                className="p-1.5 rounded-full glass-button text-red-400 active:scale-90 transition-transform"
+                title="حذف هذه الصفحة"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
             )}
           </div>
 

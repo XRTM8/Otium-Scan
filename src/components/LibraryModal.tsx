@@ -6,6 +6,7 @@ import {
   exportVaultBackup,
   restoreVaultBackup,
 } from '../core/storage/documentLibrary';
+import { nativeSharePdf, nativeSavePdf, nativeOpenInOtium } from '../core/nativeBridge';
 import { hasVaultPin, verifyVaultPin, setVaultPin, clearVaultPin } from '../core/security';
 import { OtiumLogo } from './OtiumLogo';
 import {
@@ -23,6 +24,7 @@ import {
   UploadCloud,
   CheckCircle2,
   Camera,
+  Download,
 } from 'lucide-react';
 
 interface LibraryModalProps {
@@ -80,20 +82,19 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose }) =
 
   const handleShare = async (doc: LibraryDocument) => {
     triggerHaptic(15);
-    const file = new File([doc.pdfBlob], `${doc.title}.pdf`, { type: 'application/pdf' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({
-        files: [file],
-        title: doc.title,
-      });
-    } else {
-      const url = URL.createObjectURL(doc.pdfBlob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${doc.title}.pdf`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }
+    await nativeSharePdf(doc.pdfBlob, `${doc.title}.pdf`, doc.title);
+  };
+
+  const handleSaveToDownloads = async (doc: LibraryDocument) => {
+    triggerHaptic(15);
+    await nativeSavePdf(doc.pdfBlob, `${doc.title}.pdf`);
+    setToastMsg('✓ تم حفظ المستند في مجلد التنزيلات');
+    setTimeout(() => setToastMsg(''), 2200);
+  };
+
+  const handleOpenInOtium = async (doc: LibraryDocument) => {
+    triggerHaptic(20);
+    await nativeOpenInOtium(doc.pdfBlob, `${doc.title}.pdf`);
   };
 
   const handleExportBackup = async () => {
@@ -101,21 +102,7 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose }) =
     try {
       const backupBlob = await exportVaultBackup();
       const filename = `Otium_Vault_Backup_${new Date().toISOString().slice(0, 10)}.otiumvault`;
-      const file = new File([backupBlob], filename, { type: 'application/octet-stream' });
-
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({
-          files: [file],
-          title: 'Otium Scan Vault Backup',
-        });
-      } else {
-        const url = URL.createObjectURL(backupBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-      }
+      await nativeSharePdf(backupBlob, filename, 'Otium Scan Vault Backup');
       setToastMsg('Vault backup exported successfully');
       setTimeout(() => setToastMsg(''), 2500);
     } catch (e) {
@@ -492,8 +479,24 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose }) =
               {/* Actions */}
               <div className="flex items-center gap-1.5 flex-shrink-0">
                 <button
+                  onClick={() => handleOpenInOtium(doc)}
+                  className="p-2 rounded-xl glass-button text-emerald-400 active:scale-95 hover:border-emerald-500/40"
+                  title="فتح في قارئ أو تيوم / Open in Otium Reader"
+                >
+                  <BookOpen className="w-4 h-4" />
+                </button>
+
+                <button
+                  onClick={() => handleSaveToDownloads(doc)}
+                  className="p-2 rounded-xl glass-button text-gray-300 active:text-emerald-400 hover:border-emerald-500/40"
+                  title="حفظ في التنزيلات / Save to Downloads"
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+
+                <button
                   onClick={() => handleShare(doc)}
-                  className="p-2.5 rounded-xl glass-button text-gray-300 active:text-emerald-400 hover:border-emerald-500/40"
+                  className="p-2 rounded-xl glass-button text-gray-300 active:text-emerald-400 hover:border-emerald-500/40"
                   title="مشاركة المستند PDF"
                 >
                   <Share2 className="w-4 h-4" />
@@ -501,7 +504,7 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose }) =
 
                 <button
                   onClick={() => handleDelete(doc.id)}
-                  className="p-2.5 rounded-xl glass-button text-gray-400 active:text-red-400 hover:border-red-500/40"
+                  className="p-2 rounded-xl glass-button text-gray-400 active:text-red-400 hover:border-red-500/40"
                   title="حذف"
                 >
                   <Trash2 className="w-4 h-4" />

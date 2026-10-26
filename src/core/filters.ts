@@ -32,8 +32,11 @@ export function applyFilter(
   sourceCanvas: HTMLCanvasElement,
   filter: FilterType
 ): HTMLCanvasElement {
-  const width = sourceCanvas.width;
-  const height = sourceCanvas.height;
+  const maxDim = 2400;
+  const currentMax = Math.max(sourceCanvas.width, sourceCanvas.height);
+  const scale = currentMax > maxDim ? maxDim / currentMax : 1;
+  const width = Math.round(sourceCanvas.width * scale);
+  const height = Math.round(sourceCanvas.height * scale);
 
   const destCanvas = document.createElement('canvas');
   destCanvas.width = width;
@@ -42,7 +45,7 @@ export function applyFilter(
   const ctx = destCanvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return destCanvas;
 
-  ctx.drawImage(sourceCanvas, 0, 0);
+  ctx.drawImage(sourceCanvas, 0, 0, width, height);
 
   if (filter === 'original') {
     return destCanvas;

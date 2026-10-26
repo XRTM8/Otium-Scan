@@ -31,6 +31,22 @@ export async function mergeIdCardSidesToA4(
   const backY = Math.round(a4Height * 0.54);
   const borderRadius = 28;
 
+  function pathRoundRect(c: CanvasRenderingContext2D, rx: number, ry: number, rw: number, rh: number, r: number) {
+    if (typeof c.roundRect === 'function') {
+      c.roundRect(rx, ry, rw, rh, r);
+    } else {
+      c.moveTo(rx + r, ry);
+      c.lineTo(rx + rw - r, ry);
+      c.arcTo(rx + rw, ry, rx + rw, ry + r, r);
+      c.lineTo(rx + rw, ry + rh - r);
+      c.arcTo(rx + rw, ry + rh, rx + rw - r, ry + rh, r);
+      c.lineTo(rx + r, ry + rh);
+      c.arcTo(rx, ry + rh, rx, ry + rh - r, r);
+      c.lineTo(rx, ry + r);
+      c.arcTo(rx, ry, rx + r, ry, r);
+    }
+  }
+
   function drawRoundedCard(source: HTMLCanvasElement, x: number, y: number, label: string) {
     if (!ctx) return;
 
@@ -42,7 +58,7 @@ export async function mergeIdCardSidesToA4(
 
     // Rounded rectangle path
     ctx.beginPath();
-    ctx.roundRect(x, y, cardW, cardH, borderRadius);
+    pathRoundRect(ctx, x, y, cardW, cardH, borderRadius);
     ctx.clip();
 
     ctx.drawImage(source, x, y, cardW, cardH);
@@ -53,7 +69,7 @@ export async function mergeIdCardSidesToA4(
     ctx.strokeStyle = '#D1D5DB';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.roundRect(x, y, cardW, cardH, borderRadius);
+    pathRoundRect(ctx, x, y, cardW, cardH, borderRadius);
     ctx.stroke();
     ctx.restore();
 

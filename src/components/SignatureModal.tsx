@@ -18,12 +18,12 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
   const [penColor, setPenColor] = useState<string>('#1e3a8a'); // Classic blue ink
   const [lineWidth, setLineWidth] = useState<number>(3);
 
+  // Setup canvas size once when modal opens
   useEffect(() => {
     if (!isOpen) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Handle high DPI
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     canvas.width = rect.width * dpr;
@@ -37,7 +37,20 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
       ctx.strokeStyle = penColor;
       ctx.lineWidth = lineWidth;
     }
-  }, [isOpen, penColor, lineWidth]);
+    setHasDrawn(false);
+  }, [isOpen]);
+
+  // Update pen styling without wiping canvas pixels
+  useEffect(() => {
+    if (!isOpen) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.strokeStyle = penColor;
+      ctx.lineWidth = lineWidth;
+    }
+  }, [penColor, lineWidth, isOpen]);
 
   if (!isOpen) return null;
 

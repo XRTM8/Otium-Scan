@@ -1,6 +1,6 @@
 import React, { useRef, useState, useCallback } from 'react';
 import { Point, Quad } from '../core/types';
-import { getDefaultQuad, warpPerspective } from '../core/geometry';
+import { getDefaultQuad, warpPerspective, isQuadConvex } from '../core/geometry';
 import { detectDocumentCorners } from '../core/edgeDetection';
 import { Check, RotateCcw, X, Wand2, RotateCw, Maximize2 } from 'lucide-react';
 
@@ -303,6 +303,8 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
       }
     : null;
 
+  const isValidQuad = quad ? isQuadConvex(quad) : false;
+
   return (
     <div
       ref={containerRef}
@@ -373,8 +375,8 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
           <svg className="fixed inset-0 w-full h-full pointer-events-none z-20">
             <polygon
               points={renderPolyPoints()}
-              fill="rgba(16, 185, 129, 0.18)"
-              stroke="#10B981"
+              fill={isValidQuad ? "rgba(16, 185, 129, 0.18)" : "rgba(239, 68, 68, 0.22)"}
+              stroke={isValidQuad ? "#10B981" : "#EF4444"}
               strokeWidth="2.5"
               strokeDasharray="6 4"
             />
@@ -397,7 +399,7 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
                   isTargeted ? 'scale-125' : 'active:scale-125'
                 }`}
               >
-                <div className="w-6 h-6 rounded-full bg-emerald-400 border-2 border-white shadow-xl flex items-center justify-center ring-4 ring-emerald-500/30">
+                <div className={`w-6 h-6 rounded-full ${isValidQuad ? 'bg-emerald-400 ring-emerald-500/30' : 'bg-red-500 ring-red-500/30'} border-2 border-white shadow-xl flex items-center justify-center ring-4`}>
                   <div className="w-1.5 h-1.5 rounded-full bg-black" />
                 </div>
               </div>
@@ -478,10 +480,15 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
 
         <button
           onClick={handleApply}
-          className="flex items-center gap-2 px-7 py-3 rounded-2xl bg-emerald-500 text-black font-black text-sm active:scale-95 transition-transform emerald-glow shadow-xl"
+          disabled={!isValidQuad}
+          className={`flex items-center gap-2 px-7 py-3 rounded-2xl font-black text-sm active:scale-95 transition-all shadow-xl ${
+            isValidQuad
+              ? 'bg-emerald-500 text-black emerald-glow'
+              : 'bg-red-500/20 text-red-300 border border-red-500/30 opacity-70 cursor-not-allowed'
+          }`}
         >
           <Check className="w-5 h-5 stroke-[3]" />
-          <span>تطبيق القص</span>
+          <span>{isValidQuad ? 'تطبيق القص' : 'زوايا متقاطعة'}</span>
         </button>
       </div>
     </div>

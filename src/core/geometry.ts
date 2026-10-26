@@ -53,6 +53,25 @@ export function orderCorners(pts: Point[]): Quad {
   };
 }
 
+export function isQuadConvex(quad: Quad): boolean {
+  const pts = [quad.topLeft, quad.topRight, quad.bottomRight, quad.bottomLeft];
+  let sign = 0;
+  for (let i = 0; i < 4; i++) {
+    const p1 = pts[i];
+    const p2 = pts[(i + 1) % 4];
+    const p3 = pts[(i + 2) % 4];
+    const cp = (p2.x - p1.x) * (p3.y - p2.y) - (p2.y - p1.y) * (p3.x - p2.x);
+    if (Math.abs(cp) > 1e-4) {
+      if (sign === 0) {
+        sign = cp > 0 ? 1 : -1;
+      } else if ((cp > 0 ? 1 : -1) !== sign) {
+        return false; // Cross-over / self-intersecting / concave
+      }
+    }
+  }
+  return sign !== 0;
+}
+
 export function getDefaultQuad(width: number, height: number): Quad {
   const insetX = width * 0.08;
   const insetY = height * 0.08;

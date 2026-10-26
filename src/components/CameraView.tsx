@@ -89,7 +89,25 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
   useEffect(() => {
     initCamera();
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        setTorchOn(false);
+        setStream((prev) => {
+          if (prev) {
+            prev.getTracks().forEach((t) => t.stop());
+          }
+          return null;
+        });
+      } else {
+        initCamera();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       setStream((prevStream) => {
         if (prevStream) {
           prevStream.getTracks().forEach((track) => track.stop());

@@ -105,14 +105,13 @@ export async function exportVaultBackup(): Promise<Blob> {
 
   const serializedDocs = await Promise.all(
     docs.map(async (doc) => {
-      const buffer = await doc.pdfBlob.arrayBuffer();
-      const bytes = new Uint8Array(buffer);
-      let binary = '';
-      const chunk = 8192;
-      for (let i = 0; i < bytes.length; i += chunk) {
-        binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
-      }
-      const pdfBase64 = btoa(binary);
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(doc.pdfBlob);
+      });
+      const pdfBase64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
 
       return {
         id: doc.id,
