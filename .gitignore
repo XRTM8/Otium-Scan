@@ -8,6 +8,7 @@ dist/
 build/
 release/
 src-tauri/target/
+*.tsbuildinfo
 
 # Environment and local configs
 .env

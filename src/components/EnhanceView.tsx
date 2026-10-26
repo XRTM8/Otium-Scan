@@ -13,11 +13,11 @@ import { dewarpBookCurvature } from '../core/geometry';
 import { performOcr } from '../core/ocr/ocrEngine';
 import { detectBarcodesFromCanvas, DetectedBarcode } from '../core/barcode';
 import { SignatureModal } from './SignatureModal';
+import { OtiumLogo } from './OtiumLogo';
 import {
   ArrowLeft,
   Share2,
   Sparkles,
-  BookOpen,
   Download,
   Plus,
   Trash2,
@@ -408,13 +408,13 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
   const previewSource = fullResPreviewUrl || currentPage.thumbnailDataUrl;
 
   return (
-    <div className="relative w-full h-full bg-black flex flex-col justify-between overflow-hidden select-none">
+    <div className="relative w-full h-full bg-[#07090e] flex flex-col justify-between overflow-hidden select-none">
       {/* Top Bar */}
-      <div className="relative z-20 flex items-center justify-between px-6 pt-12 pb-4 glass-panel border-b-0">
+      <div className="relative z-20 flex items-center justify-between px-5 pt-12 pb-3.5 otium-chrome border-b border-white/[0.08]">
         <button
           onClick={onBackToCamera}
           className="p-2.5 rounded-full glass-button text-gray-300 active:text-white"
-          title="Back"
+          title="رجوع للكاميرا / Back"
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
@@ -430,20 +430,20 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
                 if (e.key === 'Enter') setIsEditingTitle(false);
               }}
               onChange={(e) => setDocTitle(e.target.value)}
-              className="text-xs bg-white/10 text-white px-2 py-0.5 rounded border border-emerald-400 focus:outline-none text-center max-w-full"
+              className="text-xs bg-white/10 text-white px-2.5 py-1 rounded-lg border border-emerald-400 focus:outline-none text-center max-w-full font-bold"
             />
           ) : (
             <button
               onClick={() => setIsEditingTitle(true)}
-              className="flex items-center gap-1 text-sm font-semibold tracking-wide text-gray-200 truncate max-w-full hover:text-emerald-400"
-              title="Click to rename document"
+              className="flex items-center gap-1.5 text-sm font-bold tracking-wide text-white truncate max-w-full hover:text-emerald-400"
+              title="تعديل اسم المستند"
             >
               <span className="truncate">{docTitle}</span>
-              <Edit3 className="w-3 h-3 text-emerald-400 opacity-70 shrink-0" />
+              <Edit3 className="w-3.5 h-3.5 text-emerald-400 opacity-80 shrink-0" />
             </button>
           )}
-          <span className="text-[11px] text-emerald-400 font-medium">
-            Page {safeIndex + 1} of {pages.length}
+          <span className="text-[11px] text-emerald-400 font-bold tracking-wider mt-0.5">
+            صفحة {safeIndex + 1} من {pages.length}
           </span>
         </div>
 
@@ -1105,10 +1105,11 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
           <button
             onClick={handleOpenInOtium}
             disabled={pdfGenerating}
-            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-emerald-500 text-black font-semibold text-sm active:scale-95 transition-transform emerald-glow shadow-lg disabled:opacity-50"
+            className="flex-1 flex items-center justify-center gap-2.5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs active:scale-95 transition-all emerald-glow shadow-lg disabled:opacity-50"
+            title="فتح المستند في قارئ أو تيوم"
           >
-            <BookOpen className="w-4 h-4 stroke-[2.5]" />
-            <span>Open in Otium</span>
+            <OtiumLogo size={18} className="text-black" />
+            <span className="font-sans font-black tracking-wider">فتح في أو تيوم / Open in Otium</span>
           </button>
 
           {/* Native Android Share Sheet */}

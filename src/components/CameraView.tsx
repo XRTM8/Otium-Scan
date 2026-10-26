@@ -5,12 +5,12 @@ import {
   Zap,
   ZapOff,
   CheckCheck,
-  FolderArchive,
   ScanLine,
   Sparkles,
   Eye,
   CreditCard,
 } from 'lucide-react';
+import { OtiumLogo } from './OtiumLogo';
 import { playShutterSound } from '../core/audio';
 import { detectDocumentCorners, calculateLaplacianSharpness } from '../core/edgeDetection';
 import { mergeIdCardSidesToA4 } from '../core/idCard';
@@ -376,59 +376,68 @@ export const CameraView: React.FC<CameraViewProps> = ({
   };
 
   return (
-    <div className="relative w-full h-full bg-black flex flex-col justify-between overflow-hidden">
+    <div className="relative w-full h-full bg-[#07090e] flex flex-col justify-between overflow-hidden">
       {/* Visual Shutter Flash */}
-      {flashAnimation && <div className="absolute inset-0 z-50 bg-white pointer-events-none" />}
+      {flashAnimation && <div className="absolute inset-0 z-50 bg-white pointer-events-none animate-out fade-out duration-150" />}
 
       {/* Top Header Bar */}
-      <div className="relative z-20 flex items-center justify-between px-6 pt-12 pb-4 glass-panel border-b-0">
-        <div className="flex items-center gap-2">
-          {onOpenLibrary && (
-            <button
-              onClick={() => {
-                triggerHaptic(15);
-                onOpenLibrary();
-              }}
-              className="p-2 rounded-xl glass-button text-emerald-400 active:scale-90"
-              title="Saved Documents Library"
-            >
-              <FolderArchive className="w-4 h-4" />
-            </button>
-          )}
-          <span className="text-sm font-semibold tracking-wider text-emerald-400 uppercase">
-            Otium Scan
-          </span>
+      <div className="relative z-20 flex items-center justify-between px-5 pt-12 pb-3.5 otium-chrome border-b border-white/[0.08]">
+        {/* Otium Brand & Vault Badge */}
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => {
+              triggerHaptic(15);
+              onOpenLibrary?.();
+            }}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-full glass-button hover:border-emerald-500/40 active:scale-95 transition-all group shadow-sm"
+            title="خزنة مستندات أو تيوم / Otium Vault"
+          >
+            <div className="relative flex items-center justify-center">
+              <OtiumLogo size={20} className="text-emerald-400 group-hover:text-emerald-300 transition-colors" />
+              {pagesCount > 0 && (
+                <span className="absolute -top-1.5 -right-2 w-4 h-4 bg-emerald-500 text-black text-[9px] font-black rounded-full flex items-center justify-center ring-2 ring-[#07090e]">
+                  {pagesCount}
+                </span>
+              )}
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="text-white text-xs font-black tracking-widest font-sans">OTIUM</span>
+              <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-wider px-1 py-0.2 rounded bg-emerald-500/10 border border-emerald-500/20">
+                SCAN
+              </span>
+            </div>
+          </button>
         </div>
 
-        {/* Scan Mode Switcher (Single vs Rapid Batch) & Tools */}
+        {/* Scan Mode Switcher (Single vs Rapid Batch vs ID Card) & Quick Controls */}
         <div className="flex items-center gap-2">
-          <div className="flex items-center p-0.5 rounded-full bg-white/10 border border-white/10 text-xs">
+          <div className="flex items-center p-0.5 rounded-full bg-white/[0.06] border border-white/[0.08] text-xs shadow-inner">
             <button
               onClick={() => {
                 triggerHaptic(10);
                 setScanMode('single');
               }}
-              className={`px-2.5 py-1 rounded-full font-medium transition-all ${
+              className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all ${
                 scanMode === 'single'
-                  ? 'bg-emerald-500 text-black font-semibold shadow-sm'
-                  : 'text-gray-400'
+                  ? 'bg-emerald-500 text-black shadow-md shadow-emerald-500/30'
+                  : 'text-gray-400 hover:text-white'
               }`}
             >
-              Single
+              مفرد
             </button>
             <button
               onClick={() => {
                 triggerHaptic(10);
                 setScanMode('batch');
               }}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-full font-medium transition-all ${
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold transition-all ${
                 scanMode === 'batch'
-                  ? 'bg-emerald-500 text-black font-semibold shadow-sm'
-                  : 'text-gray-400'
+                  ? 'bg-emerald-500 text-black shadow-md shadow-emerald-500/30'
+                  : 'text-gray-400 hover:text-white'
               }`}
             >
               <ScanLine className="w-3 h-3" />
-              <span>Batch</span>
+              <span>متعدد</span>
             </button>
             <button
               onClick={() => {
@@ -437,15 +446,15 @@ export const CameraView: React.FC<CameraViewProps> = ({
                 setIdCardStep('front');
                 setIdFrontDataUrl(null);
               }}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-full font-medium transition-all ${
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold transition-all ${
                 scanMode === 'idcard'
-                  ? 'bg-emerald-500 text-black font-semibold shadow-sm'
-                  : 'text-gray-400'
+                  ? 'bg-emerald-500 text-black shadow-md shadow-emerald-500/30'
+                  : 'text-gray-400 hover:text-white'
               }`}
-              title="ID Card 2-in-1 (Front + Back merged onto A4)"
+              title="تصوير وجهي الهوية A4"
             >
               <CreditCard className="w-3 h-3" />
-              <span>ID Card</span>
+              <span>هوية</span>
             </button>
           </div>
 

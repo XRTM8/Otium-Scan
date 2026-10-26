@@ -290,42 +290,43 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
       ref={containerRef}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      className="relative w-full h-full bg-black flex flex-col justify-between overflow-hidden select-none"
+      className="relative w-full h-full bg-[#07090e] flex flex-col justify-between overflow-hidden select-none"
     >
       {/* Top Action Bar */}
-      <div className="relative z-30 flex items-center justify-between px-6 pt-12 pb-4 glass-panel border-b-0">
+      <div className="relative z-30 flex items-center justify-between px-5 pt-12 pb-3.5 otium-chrome border-b border-white/[0.08]">
         <button
           onClick={onCancel}
           className="p-2.5 rounded-full glass-button text-gray-300 active:text-white"
+          title="إلغاء / Cancel"
         >
           <X className="w-5 h-5" />
         </button>
 
-        <span className="text-sm font-semibold tracking-wide text-gray-200">
-          Precision Boundary
+        <span className="text-xs font-bold tracking-wide text-gray-200">
+          تحديد أبعاد المستند / Crop Bounds
         </span>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <button
             onClick={handleAutoDetect}
             className="p-2.5 rounded-full glass-button text-emerald-400 active:scale-90"
-            title="Auto Detect Corners"
+            title="تحديد ذكي / Smart Auto Detect"
           >
-            <Wand2 className="w-5 h-5" />
+            <Wand2 className="w-4 h-4" />
           </button>
           <button
             onClick={handleRotate}
             className="p-2.5 rounded-full glass-button text-gray-300 active:scale-90"
-            title="Rotate 90 deg"
+            title="تدوير 90° / Rotate"
           >
-            <RotateCw className="w-5 h-5" />
+            <RotateCw className="w-4 h-4" />
           </button>
           <button
             onClick={handleResetQuad}
             className="p-2.5 rounded-full glass-button text-gray-300 active:text-emerald-400"
-            title="Full Page"
+            title="إعادة تعيين / Reset"
           >
-            <RotateCcw className="w-5 h-5" />
+            <RotateCcw className="w-4 h-4" />
           </button>
         </div>
       </div>
