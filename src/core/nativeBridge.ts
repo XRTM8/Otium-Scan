@@ -13,6 +13,7 @@ declare global {
       savePdfToDownloads?: (base64Data: string, filename: string) => boolean;
       saveFileToDownloads?: (base64Data: string, filename: string, mimeType: string) => boolean;
       openInOtiumReader?: (base64Data: string, filename: string) => void;
+      printPdf?: (base64Data: string, filename: string) => void;
       openExternalUrl?: (url: string) => void;
       downloadAndInstallApk?: (apkUrl: string, filename: string) => void;
       fetchUrl?: (url: string) => string;
@@ -156,6 +157,53 @@ export async function nativeOpenInOtium(blob: Blob, filename: string): Promise<v
 
   // Fallback to sharing
   await nativeSharePdf(blob, cleanFilename, 'فتح بواسطة');
+}
+
+/**
+ * Direct print PDF document via system PrintManager/printer chooser or browser window.print()
+ */
+export async function nativePrintPdf(blob: Blob, filename: string): Promise<void> {
+  const cleanFilename = filename.endsWith('.pdf') ? filename : `${filename}.pdf`;
+
+  if (window.OtiumNative?.printPdf) {
+    try {
+      const base64 = await blobToBase64(blob);
+      window.OtiumNative.printPdf(base64, cleanFilename);
+      return;
+    } catch (e) {
+      console.warn('Native printPdf failed, falling back:', e);
+    }
+  }
+
+  // Web fallback: open blob in hidden iframe and trigger print
+  try {
+    const url = URL.createObjectURL(blob);
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    iframe.src = url;
+    document.body.appendChild(iframe);
+    iframe.onload = () => {
+      setTimeout(() => {
+        try {
+          iframe.focus();
+          iframe.contentWindow?.print();
+        } catch {
+          window.open(url, '_blank');
+        }
+      }, 300);
+    };
+    setTimeout(() => {
+      document.body.removeChild(iframe);
+      URL.revokeObjectURL(url);
+    }, 60000);
+  } catch (e) {
+    console.warn('Web print fallback failed:', e);
+  }
 }
 
 /**

@@ -12,6 +12,10 @@ import {
   rotateStoredPage,
   loadOriginalDataUrlFromDisk,
   deleteStoredPage,
+  checkStorageQuota,
+  saveActiveSessionPages,
+  getActiveSessionPages,
+  clearActiveSessionPages,
 } from './core/storage/pageStore';
 import { getFullFrameQuad } from './core/edgeDetection';
 import { warpPerspective } from './core/geometry';
@@ -25,7 +29,26 @@ export const App: React.FC = () => {
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [exitToast, setExitToast] = useState(false);
+  const [resumablePages, setResumablePages] = useState<ScannedPage[] | null>(null);
+  const [lowStorageWarning, setLowStorageWarning] = useState(false);
   const lastBackPressTimeRef = useRef(0);
+
+  // Check storage quota and previous unfinished session on startup
+  useEffect(() => {
+    checkStorageQuota().then(({ hasLowStorage }) => {
+      if (hasLowStorage) setLowStorageWarning(true);
+    });
+
+    const saved = getActiveSessionPages();
+    if (saved && saved.length > 0) {
+      setResumablePages(saved);
+    }
+  }, []);
+
+  // Synchronize active session pages with disk metadata for crash recovery
+  useEffect(() => {
+    saveActiveSessionPages(pages);
+  }, [pages]);
 
   // Hardware Back Button & Gesture Navigation for Android & Web
   useEffect(() => {
@@ -270,11 +293,26 @@ export const App: React.FC = () => {
   };
 
   const handleResetAll = async () => {
+    clearActiveSessionPages();
     await clearScanSession();
     setPages([]);
     setRetakeTargetIndex(null);
     setCurrentRawImage('');
     setStep('camera');
+  };
+
+  const handleResumeSession = () => {
+    if (resumablePages && resumablePages.length > 0) {
+      setPages(resumablePages);
+      setResumablePages(null);
+      setStep('review');
+    }
+  };
+
+  const handleDiscardResumableSession = async () => {
+    clearActiveSessionPages();
+    await clearScanSession();
+    setResumablePages(null);
   };
 
   const lastThumb = pages.length > 0 ? pages[pages.length - 1].thumbnailDataUrl : undefined;
@@ -327,6 +365,41 @@ export const App: React.FC = () => {
         onClose={() => setIsSettingsOpen(false)}
         onOpenVault={() => setIsLibraryOpen(true)}
       />
+
+      {/* Low Storage Alert */}
+      {lowStorageWarning && step === 'camera' && (
+        <div className="fixed top-2.5 inset-x-4 z-50 px-3 py-1.5 rounded-xl bg-red-950/85 border border-red-500/30 text-[11px] text-red-200 flex items-center justify-between font-arabic shadow-xl animate-in fade-in">
+          <span>تنبيه: مساحة التخزين المتبقية على الهاتف منخفضة جداً</span>
+          <button onClick={() => setLowStorageWarning(false)} className="text-red-400 hover:text-white text-xs px-1">✕</button>
+        </div>
+      )}
+
+      {/* Session Resume Recovery Banner */}
+      {resumablePages && step === 'camera' && (
+        <div className="fixed top-12 inset-x-4 z-50 p-3 rounded-2xl bg-slate-900/95 border border-amber-500/40 shadow-2xl flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-4 font-arabic">
+          <div className="flex items-center gap-2.5 overflow-hidden text-right">
+            <span className="text-amber-400 text-lg shrink-0">📋</span>
+            <div className="flex flex-col">
+              <span className="text-xs font-bold text-white">جلسة مسح سابقة غير محفوظة</span>
+              <span className="text-[11px] text-gray-400">توجد {resumablePages.length} صفحة من الجلسة السابقة</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              onClick={handleResumeSession}
+              className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 active:scale-95 text-black font-bold text-xs shadow-md transition-all"
+            >
+              استئناف
+            </button>
+            <button
+              onClick={handleDiscardResumableSession}
+              className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 active:scale-95 text-gray-400 hover:text-white text-xs transition-all"
+            >
+              تجاهل
+            </button>
+          </div>
+        </div>
+      )}
 
       {exitToast && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-full bg-slate-900/95 border border-emerald-500/30 text-xs text-emerald-300 font-bold shadow-2xl pointer-events-none animate-in fade-in zoom-in-95 font-arabic">

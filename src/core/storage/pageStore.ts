@@ -345,3 +345,49 @@ export async function clearScanSession(): Promise<void> {
     req.onerror = () => reject(req.error);
   });
 }
+
+/**
+ * Checks available storage quota to prevent out-of-disk crashes during large scan sessions
+ */
+export async function checkStorageQuota(): Promise<{ hasLowStorage: boolean; freeBytesEstimate?: number }> {
+  if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.estimate) {
+    try {
+      const { quota, usage } = await navigator.storage.estimate();
+      if (typeof quota === 'number' && typeof usage === 'number') {
+        const freeBytes = quota - usage;
+        const hasLowStorage = freeBytes < 45 * 1024 * 1024; // Less than 45MB free
+        return { hasLowStorage, freeBytesEstimate: freeBytes };
+      }
+    } catch {}
+  }
+  return { hasLowStorage: false };
+}
+
+const SESSION_PAGES_KEY = 'otium_scan_active_session_pages';
+
+export function saveActiveSessionPages(pages: import('../types').ScannedPage[]): void {
+  try {
+    if (pages.length === 0) {
+      localStorage.removeItem(SESSION_PAGES_KEY);
+    } else {
+      localStorage.setItem(SESSION_PAGES_KEY, JSON.stringify(pages));
+    }
+  } catch {}
+}
+
+export function getActiveSessionPages(): import('../types').ScannedPage[] | null {
+  try {
+    const raw = localStorage.getItem(SESSION_PAGES_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearActiveSessionPages(): void {
+  try {
+    localStorage.removeItem(SESSION_PAGES_KEY);
+  } catch {}
+}

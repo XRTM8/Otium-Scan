@@ -357,6 +357,37 @@ class MainActivity : TauriActivity() {
     }
 
     /**
+     * Prints PDF document via system printer chooser
+     */
+    @JavascriptInterface
+    fun printPdf(base64Data: String, filename: String) {
+      runOnUiThread {
+        try {
+          val cleanBase64 = if (base64Data.contains(",")) base64Data.substringAfter(",") else base64Data
+          val bytes = android.util.Base64.decode(cleanBase64, android.util.Base64.DEFAULT)
+          val cleanFilename = if (filename.endsWith(".pdf")) filename else "$filename.pdf"
+          val file = File(cacheDir, cleanFilename)
+          file.writeBytes(bytes)
+
+          val uri = FileProvider.getUriForFile(
+            this@MainActivity,
+            "${applicationContext.packageName}.fileprovider",
+            file
+          )
+
+          val printIntent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/pdf")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          }
+          startActivity(Intent.createChooser(printIntent, "طباعة المستند عبر طابعة"))
+        } catch (e: Exception) {
+          Toast.makeText(this@MainActivity, "خطأ في تشغيل أمر الطباعة: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+      }
+    }
+
+    /**
      * Native HTTP GET to bypass webview CSP/CORS restrictions for GitHub releases
      */
     @JavascriptInterface

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Otium Scan",
-  "version": "0.2.10",
+  "version": "1.0.0",
   "identifier": "com.otium.scan",
   "build": {
     "frontendDist": "../dist",

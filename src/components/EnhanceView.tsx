@@ -12,7 +12,7 @@ import { saveDocumentToLibrary } from '../core/storage/documentLibrary';
 import { dewarpBookCurvature } from '../core/geometry';
 import { performOcr, terminateOcrWorker } from '../core/ocr/ocrEngine';
 import { detectBarcodesFromCanvas, DetectedBarcode } from '../core/barcode';
-import { nativeSharePdf, nativeSavePdf, nativeOpenInOtium, nativeSaveImage } from '../core/nativeBridge';
+import { nativeSharePdf, nativeSavePdf, nativeOpenInOtium, nativeSaveImage, nativePrintPdf } from '../core/nativeBridge';
 import { SignatureModal } from './SignatureModal';
 import { OtiumLogo } from './OtiumLogo';
 import {
@@ -45,6 +45,7 @@ import {
   CopyCheck,
   SlidersHorizontal,
   Send,
+  Printer,
 } from 'lucide-react';
 
 interface EnhanceViewProps {
@@ -535,6 +536,22 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
       await nativeOpenInOtium(pdfBlob, filename);
     } catch (e) {
       console.warn('Open in Otium Reader failed:', e);
+    } finally {
+      setPdfGenerating(false);
+      setOcrStatus('');
+    }
+  };
+
+  const handlePrintPdf = async () => {
+    triggerHaptic(20);
+    setPdfGenerating(true);
+    try {
+      const pdfBlob = await generateCompiledPdf();
+      await persistToLibrary(pdfBlob);
+      const filename = `${docTitle.trim() || 'Otium_Scan'}.pdf`;
+      await nativePrintPdf(pdfBlob, filename);
+    } catch (e) {
+      console.warn('Print PDF failed:', e);
     } finally {
       setPdfGenerating(false);
       setOcrStatus('');
@@ -1228,6 +1245,15 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
             title="حفظ PDF في مجلد التنزيلات"
           >
             <Download className="w-4 h-4 text-emerald-400" />
+          </button>
+
+          <button
+            onClick={handlePrintPdf}
+            disabled={pdfGenerating}
+            className="p-3 rounded-2xl glass-button text-gray-200 hover:text-emerald-400 active:scale-95 transition-all disabled:opacity-50"
+            title="طباعة المستند عبر طابعة"
+          >
+            <Printer className="w-4 h-4 text-gray-300 hover:text-emerald-400" />
           </button>
         </div>
       </div>
