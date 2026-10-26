@@ -69,9 +69,9 @@ export function detectDocumentCorners(
     // If center itself is very dark, this is a dark scene - return full frame
     if (docMeanLum < 75) return fullFrameQuad;
 
-    // 4. Inspect the 4 outer border strips (3.5% margin)
-    // If a border strip already matches the paper luminance, the paper touches that edge!
-    const calcStripMean = (x0: number, y0: number, x1: number, y1: number): number => {
+    // 4. Inspect the 4 outer border strips (3% margin)
+    // Checks if the document paper actually extends to the frame boundary.
+    const calcStripStats = (x0: number, y0: number, x1: number, y1: number): { mean: number; variance: number } => {
       let sum = 0;
       let count = 0;
       for (let y = y0; y < y1; y++) {
@@ -81,47 +81,63 @@ export function detectDocumentCorners(
           count++;
         }
       }
-      return count > 0 ? sum / count : 128;
+      if (count === 0) return { mean: 128, variance: 100 };
+      const mean = sum / count;
+      let varSum = 0;
+      for (let y = y0; y < y1; y++) {
+        const row = y * workW;
+        for (let x = x0; x < x1; x++) {
+          const diff = lum[row + x] - mean;
+          varSum += diff * diff;
+        }
+      }
+      return { mean, variance: varSum / count };
     };
 
-    const stripDepthX = Math.max(2, Math.round(workW * 0.035));
-    const stripDepthY = Math.max(2, Math.round(workH * 0.035));
+    const stripDepthX = Math.max(2, Math.round(workW * 0.03));
+    const stripDepthY = Math.max(2, Math.round(workH * 0.03));
 
-    const topStripLum = calcStripMean(0, 0, workW, stripDepthY);
-    const bottomStripLum = calcStripMean(0, workH - stripDepthY, workW, workH);
-    const leftStripLum = calcStripMean(0, 0, stripDepthX, workH);
-    const rightStripLum = calcStripMean(workW - stripDepthX, 0, workW, workH);
+    const topStats = calcStripStats(0, 0, workW, stripDepthY);
+    const bottomStats = calcStripStats(0, workH - stripDepthY, workW, workH);
+    const leftStats = calcStripStats(0, 0, stripDepthX, workH);
+    const rightStats = calcStripStats(workW - stripDepthX, 0, workW, workH);
 
-    const isPaperAtBorder = (stripLum: number): boolean => {
-      // If the margin strip is bright or close to center document luminance, it's paper!
-      return stripLum > 135 || Math.abs(stripLum - docMeanLum) < 32;
+    // True document paper at the margin must closely match center paper luminance AND have low variance (not textured bedsheet/table)
+    const isPaperAtBorder = (stats: { mean: number; variance: number }): boolean => {
+      const matchMean = Math.abs(stats.mean - docMeanLum) < 18;
+      const isSmoothPaper = stats.variance < 35;
+      return matchMean && isSmoothPaper;
     };
 
-    const topIsPaper = isPaperAtBorder(topStripLum);
-    const bottomIsPaper = isPaperAtBorder(bottomStripLum);
-    const leftIsPaper = isPaperAtBorder(leftStripLum);
-    const rightIsPaper = isPaperAtBorder(rightStripLum);
+    const topIsPaper = isPaperAtBorder(topStats);
+    const bottomIsPaper = isPaperAtBorder(bottomStats);
+    const leftIsPaper = isPaperAtBorder(leftStats);
+    const rightIsPaper = isPaperAtBorder(rightStats);
 
     // If all 4 borders are paper, document fills the whole frame: return full frame immediately
     if (topIsPaper && bottomIsPaper && leftIsPaper && rightIsPaper) {
       return fullFrameQuad;
     }
 
-    // 5. Exterior-to-Interior Scan (Max Depth 18% - NEVER scan into text territory)
-    const maxScanDepthY = Math.round(workH * 0.18);
-    const maxScanDepthX = Math.round(workW * 0.18);
-    const paperThreshold = Math.max(110, Math.round(docMeanLum * 0.78));
+    // 5. Exterior-to-Interior Scan (Scan Depth up to 38% - reaches books on beds and desks)
+    const maxScanDepthY = Math.round(workH * 0.38);
+    const maxScanDepthX = Math.round(workW * 0.38);
+    const paperThreshold = Math.max(90, Math.round(docMeanLum * 0.72));
 
     // Top Edge (only if not already paper)
     const topPts: Point[] = [];
     if (!topIsPaper) {
-      const colStep = Math.max(3, Math.floor(workW / 24));
-      for (let x = Math.round(workW * 0.1); x < workW * 0.9; x += colStep) {
+      const colStep = Math.max(2, Math.floor(workW / 28));
+      for (let x = Math.round(workW * 0.08); x < workW * 0.92; x += colStep) {
         for (let y = 1; y < maxScanDepthY; y++) {
           const idx = y * workW + x;
-          if (lum[idx] >= paperThreshold) {
-            topPts.push({ x, y });
-            break; // Stop at FIRST paper pixel
+          const prevIdx = (y - 1) * workW + x;
+          const grad = Math.abs(lum[idx] - lum[prevIdx]);
+          // Paper edge: either cross paper luminance threshold or hit sharp border/shadow gradient
+          if (lum[idx] >= paperThreshold || grad >= 22) {
+            // Apply slight outward safety margin (1-2px) so we never touch printed text
+            topPts.push({ x, y: Math.max(1, y - 1) });
+            break;
           }
         }
       }
@@ -130,13 +146,15 @@ export function detectDocumentCorners(
     // Bottom Edge (only if not already paper)
     const bottomPts: Point[] = [];
     if (!bottomIsPaper) {
-      const colStep = Math.max(3, Math.floor(workW / 24));
-      for (let x = Math.round(workW * 0.1); x < workW * 0.9; x += colStep) {
+      const colStep = Math.max(2, Math.floor(workW / 28));
+      for (let x = Math.round(workW * 0.08); x < workW * 0.92; x += colStep) {
         for (let y = workH - 2; y > workH - maxScanDepthY; y--) {
           const idx = y * workW + x;
-          if (lum[idx] >= paperThreshold) {
-            bottomPts.push({ x, y });
-            break; // Stop at FIRST paper pixel
+          const nextIdx = (y + 1) * workW + x;
+          const grad = Math.abs(lum[idx] - lum[nextIdx]);
+          if (lum[idx] >= paperThreshold || grad >= 22) {
+            bottomPts.push({ x, y: Math.min(workH - 2, y + 1) });
+            break;
           }
         }
       }
@@ -145,13 +163,15 @@ export function detectDocumentCorners(
     // Left Edge (only if not already paper)
     const leftPts: Point[] = [];
     if (!leftIsPaper) {
-      const rowStep = Math.max(3, Math.floor(workH / 24));
-      for (let y = Math.round(workH * 0.1); y < workH * 0.9; y += rowStep) {
+      const rowStep = Math.max(2, Math.floor(workH / 28));
+      for (let y = Math.round(workH * 0.08); y < workH * 0.92; y += rowStep) {
         for (let x = 1; x < maxScanDepthX; x++) {
           const idx = y * workW + x;
-          if (lum[idx] >= paperThreshold) {
-            leftPts.push({ x, y });
-            break; // Stop at FIRST paper pixel
+          const prevIdx = y * workW + (x - 1);
+          const grad = Math.abs(lum[idx] - lum[prevIdx]);
+          if (lum[idx] >= paperThreshold || grad >= 22) {
+            leftPts.push({ x: Math.max(1, x - 1), y });
+            break;
           }
         }
       }
@@ -160,13 +180,15 @@ export function detectDocumentCorners(
     // Right Edge (only if not already paper)
     const rightPts: Point[] = [];
     if (!rightIsPaper) {
-      const rowStep = Math.max(3, Math.floor(workH / 24));
-      for (let y = Math.round(workH * 0.1); y < workH * 0.9; y += rowStep) {
+      const rowStep = Math.max(2, Math.floor(workH / 28));
+      for (let y = Math.round(workH * 0.08); y < workH * 0.92; y += rowStep) {
         for (let x = workW - 2; x > workW - maxScanDepthX; x--) {
           const idx = y * workW + x;
-          if (lum[idx] >= paperThreshold) {
-            rightPts.push({ x, y });
-            break; // Stop at FIRST paper pixel
+          const nextIdx = y * workW + (x + 1);
+          const grad = Math.abs(lum[idx] - lum[nextIdx]);
+          if (lum[idx] >= paperThreshold || grad >= 22) {
+            rightPts.push({ x: Math.min(workW - 2, x + 1), y });
+            break;
           }
         }
       }
@@ -174,11 +196,11 @@ export function detectDocumentCorners(
 
     // 6. Robust Line Fitting with Outlier Rejection
     const fitHorizontalLine = (pts: Point[], fallbackY: number): { m: number; c: number } => {
-      if (pts.length < 5) return { m: 0, c: fallbackY };
+      if (pts.length < 4) return { m: 0, c: fallbackY };
       const sortedY = [...pts.map((p) => p.y)].sort((a, b) => a - b);
       const medianY = sortedY[Math.floor(sortedY.length / 2)];
-      const inliers = pts.filter((p) => Math.abs(p.y - medianY) < workH * 0.06);
-      if (inliers.length < 4) return { m: 0, c: medianY };
+      const inliers = pts.filter((p) => Math.abs(p.y - medianY) < workH * 0.08);
+      if (inliers.length < 3) return { m: 0, c: medianY };
 
       let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
       for (const p of inliers) {
@@ -196,11 +218,11 @@ export function detectDocumentCorners(
     };
 
     const fitVerticalLine = (pts: Point[], fallbackX: number): { m: number; c: number } => {
-      if (pts.length < 5) return { m: 0, c: fallbackX };
+      if (pts.length < 4) return { m: 0, c: fallbackX };
       const sortedX = [...pts.map((p) => p.x)].sort((a, b) => a - b);
       const medianX = sortedX[Math.floor(sortedX.length / 2)];
-      const inliers = pts.filter((p) => Math.abs(p.x - medianX) < workW * 0.06);
-      if (inliers.length < 4) return { m: 0, c: medianX };
+      const inliers = pts.filter((p) => Math.abs(p.x - medianX) < workW * 0.08);
+      if (inliers.length < 3) return { m: 0, c: medianX };
 
       let sumY = 0, sumX = 0, sumYX = 0, sumYY = 0;
       for (const p of inliers) {
@@ -264,8 +286,8 @@ export function detectDocumentCorners(
     const quadArea = computeQuadArea(pTL, pTR, pBR, pBL);
     const totalArea = naturalW * naturalH;
 
-    // Document must occupy at least 65% of the frame, otherwise snap to full frame
-    if (quadArea >= totalArea * 0.65 && quadArea <= totalArea * 1.0) {
+    // Document must occupy at least 22% of the frame (allowing books, receipts, and documents on beds/desks)
+    if (quadArea >= totalArea * 0.22 && quadArea <= totalArea * 1.0) {
       return orderCorners([pTL, pTR, pBR, pBL]);
     }
 

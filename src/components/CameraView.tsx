@@ -55,11 +55,24 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const [autoCaptureEnabled, setAutoCaptureEnabled] = useState(false);
   const [cropMode, setCropMode] = useState<CropMode>(() => {
     try {
-      return (localStorage.getItem('otium_scan_crop_mode') as CropMode) || 'full';
+      return (localStorage.getItem('otium_scan_crop_mode') as CropMode) || 'auto';
     } catch {
-      return 'full';
+      return 'auto';
     }
   });
+  const [viewfinderFit, setViewfinderFit] = useState<'contain' | 'cover'>(() => {
+    try {
+      return (localStorage.getItem('otium_scan_viewfinder_fit') as 'contain' | 'cover') || 'contain';
+    } catch {
+      return 'contain';
+    }
+  });
+  const [renderedBounds, setRenderedBounds] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const [captureToast, setCaptureToast] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -71,8 +84,24 @@ export const CameraView: React.FC<CameraViewProps> = ({
       } catch {}
       setCaptureToast(
         next === 'full'
-          ? '🔲 تم تفعيل كامل الإطار: لا اقتطاع للنصوص نهائياً'
-          : '📐 تم تفعيل التحديد الذكي: كشف أطراف الورقة تلقائياً'
+          ? '🔲 تم تفعيل كامل الإطار (يدوي): حفظ الصورة كاملة بدون قص'
+          : '📐 تم تفعيل التحديد الذكي: كشف أطراف المستند وإزالة الخلفية'
+      );
+      setTimeout(() => setCaptureToast(''), 2500);
+      return next;
+    });
+  }, []);
+
+  const handleToggleViewfinderFit = useCallback(() => {
+    setViewfinderFit((prev) => {
+      const next = prev === 'contain' ? 'cover' : 'contain';
+      try {
+        localStorage.setItem('otium_scan_viewfinder_fit', next);
+      } catch {}
+      setCaptureToast(
+        next === 'contain'
+          ? '🔲 عرض الحساس 100%: ما تراه في الشاشة هو ما يُلتقط بالضبط'
+          : '📱 ملء الشاشة: توسيع الصورة لتملأ شاشة الهاتف'
       );
       setTimeout(() => setCaptureToast(''), 2500);
       return next;
@@ -205,6 +234,33 @@ export const CameraView: React.FC<CameraViewProps> = ({
     return () => window.removeEventListener('deviceorientation', handleOrientation);
   }, []);
 
+  const updateRenderedBounds = useCallback(() => {
+    const video = videoRef.current;
+    const container = viewfinderRef.current;
+    if (!video || !container || video.videoWidth === 0 || video.videoHeight === 0) return;
+    const vWidth = video.videoWidth;
+    const vHeight = video.videoHeight;
+    const cWidth = container.clientWidth;
+    const cHeight = container.clientHeight;
+    if (cWidth === 0 || cHeight === 0) return;
+
+    const scale = viewfinderFit === 'contain'
+      ? Math.min(cWidth / vWidth, cHeight / vHeight)
+      : Math.max(cWidth / vWidth, cHeight / vHeight);
+    const renderedW = Math.round(vWidth * scale);
+    const renderedH = Math.round(vHeight * scale);
+    const offsetX = Math.round((cWidth - renderedW) / 2);
+    const offsetY = Math.round((cHeight - renderedH) / 2);
+
+    setRenderedBounds({ x: offsetX, y: offsetY, width: renderedW, height: renderedH });
+  }, [viewfinderFit]);
+
+  useEffect(() => {
+    updateRenderedBounds();
+    window.addEventListener('resize', updateRenderedBounds);
+    return () => window.removeEventListener('resize', updateRenderedBounds);
+  }, [updateRenderedBounds]);
+
   const handleViewfinderTap = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = viewfinderRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -240,7 +296,12 @@ export const CameraView: React.FC<CameraViewProps> = ({
     setFlashAnimation(true);
     setTimeout(() => setFlashAnimation(false), 120);
 
-    const processCapturedImage = async (dataUrl: string, frameW?: number, frameH?: number) => {
+    const processCapturedImage = async (
+      dataUrl: string,
+      frameW?: number,
+      frameH?: number,
+      sourceCanvas?: HTMLCanvasElement
+    ) => {
       let detectedQuad: Quad | undefined = undefined;
       if (cropMode === 'full') {
         if (frameW && frameH && frameW > 0 && frameH > 0) {
@@ -255,6 +316,12 @@ export const CameraView: React.FC<CameraViewProps> = ({
             bottomRight: { x: Math.round(norm.bottomRight.x * frameW), y: Math.round(norm.bottomRight.y * frameH) },
             bottomLeft: { x: Math.round(norm.bottomLeft.x * frameW), y: Math.round(norm.bottomLeft.y * frameH) },
           };
+        } else if (sourceCanvas) {
+          try {
+            detectedQuad = detectDocumentCorners(sourceCanvas);
+          } catch {
+            if (frameW && frameH) detectedQuad = getFullFrameQuad(frameW, frameH, 0.005);
+          }
         } else if (frameW && frameH && frameW > 0 && frameH > 0) {
           detectedQuad = getFullFrameQuad(frameW, frameH, 0.005);
         }
@@ -346,7 +413,12 @@ export const CameraView: React.FC<CameraViewProps> = ({
       }
     };
 
-    const tryGrabFrame = async (): Promise<{ dataUrl: string; width: number; height: number } | null> => {
+    const tryGrabFrame = async (): Promise<{
+      dataUrl: string;
+      width: number;
+      height: number;
+      canvas?: HTMLCanvasElement;
+    } | null> => {
       if (!stream) return null;
       const track = stream.getVideoTracks()[0];
       if (!track || track.readyState !== 'live') return null;
@@ -369,6 +441,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
                     dataUrl: canvas.toDataURL('image/jpeg', 0.95),
                     width: canvas.width,
                     height: canvas.height,
+                    canvas,
                   };
                 }
               }
@@ -415,7 +488,12 @@ export const CameraView: React.FC<CameraViewProps> = ({
       return null;
     };
 
-    const tryVideoCanvas = async (): Promise<{ dataUrl: string; width: number; height: number } | null> => {
+    const tryVideoCanvas = async (): Promise<{
+      dataUrl: string;
+      width: number;
+      height: number;
+      canvas?: HTMLCanvasElement;
+    } | null> => {
       const video = videoRef.current;
       if (!video || video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) return null;
 
@@ -436,6 +514,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
         dataUrl: canvas.toDataURL('image/jpeg', 0.95),
         width: canvas.width,
         height: canvas.height,
+        canvas,
       };
     };
 
@@ -449,7 +528,12 @@ export const CameraView: React.FC<CameraViewProps> = ({
       }
 
       if (captureResult) {
-        await processCapturedImage(captureResult.dataUrl, captureResult.width, captureResult.height);
+        await processCapturedImage(
+          captureResult.dataUrl,
+          captureResult.width,
+          captureResult.height,
+          (captureResult as any).canvas
+        );
       } else {
         fileInputRef.current?.click();
         setCapturing(false);
@@ -568,12 +652,16 @@ export const CameraView: React.FC<CameraViewProps> = ({
       const steady = steadyFramesCount >= 5;
       setIsQuadSteady(steady);
 
-      // Map to container coordinates with object-cover
-      const scale = Math.max(cWidth / vWidth, cHeight / vHeight);
-      const renderedW = vWidth * scale;
-      const renderedH = vHeight * scale;
-      const offsetX = (cWidth - renderedW) / 2;
-      const offsetY = (cHeight - renderedH) / 2;
+      // Map to container coordinates based on viewfinderFit
+      const scale = viewfinderFit === 'contain'
+        ? Math.min(cWidth / vWidth, cHeight / vHeight)
+        : Math.max(cWidth / vWidth, cHeight / vHeight);
+      const renderedW = Math.round(vWidth * scale);
+      const renderedH = Math.round(vHeight * scale);
+      const offsetX = Math.round((cWidth - renderedW) / 2);
+      const offsetY = Math.round((cHeight - renderedH) / 2);
+
+      setRenderedBounds({ x: offsetX, y: offsetY, width: renderedW, height: renderedH });
 
       const mapPt = (p: Point) => ({
         x: Math.round(offsetX + p.x * renderedW),
@@ -592,7 +680,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [cropMode, hasPermission, scanMode]);
+  }, [cropMode, hasPermission, scanMode, viewfinderFit]);
 
   // Enterprise Hands-Free Auto-Capture Engine
   useEffect(() => {
@@ -808,8 +896,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
           disablePictureInPicture
           onLoadedMetadata={() => {
             videoRef.current?.play().catch(console.warn);
+            updateRenderedBounds();
           }}
-          className="absolute inset-0 w-full h-full object-cover"
+          className={`absolute inset-0 w-full h-full pointer-events-none transition-all duration-200 ${
+            viewfinderFit === 'contain' ? 'object-contain' : 'object-cover'
+          }`}
         />
 
         {/* 2D Gyroscope Spirit Level Bubble */}
@@ -829,6 +920,29 @@ export const CameraView: React.FC<CameraViewProps> = ({
           </span>
         </div>
 
+        {/* Viewfinder Aspect Fit Switcher (WYSIWYG 100% vs Full Screen) */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleToggleViewfinderFit();
+          }}
+          className={`absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full backdrop-blur-md shadow-lg transition-all active:scale-95 font-arabic select-none ${
+            viewfinderFit === 'contain'
+              ? 'bg-black/80 text-emerald-300 border border-emerald-500/50 shadow-black/60 hover:bg-black/90'
+              : 'bg-black/80 text-gray-300 border border-white/10 shadow-black/60 hover:bg-black/90'
+          }`}
+          title={
+            viewfinderFit === 'contain'
+              ? 'وضع كامل الحساس مفعل (WYSIWYG): ما تراه في الشاشة هو ما يُلتقط 100% — انقر للتوسيع لملء الشاشة'
+              : 'وضع ملء الشاشة مفعل: الصورة ممتدة على الشاشة — انقر للتبديل لعرض كامل الحساس 100%'
+          }
+        >
+          <ScanLine className="w-3.5 h-3.5 text-emerald-400" />
+          <span className="text-[11px] font-bold">
+            {viewfinderFit === 'contain' ? 'الحساس 100%' : 'ملء الشاشة'}
+          </span>
+        </button>
+
         {/* Crop Mode Switcher Badge (Full Frame vs Smart Crop) */}
         {scanMode !== 'idcard' && (
           <button
@@ -843,19 +957,19 @@ export const CameraView: React.FC<CameraViewProps> = ({
             }`}
             title={
               cropMode === 'full'
-                ? 'وضع كامل الإطار مفعل (يمنع اقتطاع النصوص نهائياً) — انقر للتبديل للتحديد الذكي'
-                : 'وضع التحديد الذكي مفعل — انقر للتبديل إلى كامل الإطار'
+                ? 'وضع كامل الإطار مفعل (يمنع اقتطاع النصوص نهائياً) — انقر للتبديل للتحديد الذكي وقص الخلفية'
+                : 'وضع التحديد الذكي مفعل (قص الخلفية المحيطة) — انقر للتبديل إلى كامل الإطار'
             }
           >
             {cropMode === 'full' ? (
               <>
                 <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="text-[11px] font-bold">كامل الإطار (آمن)</span>
+                <span className="text-[11px] font-bold">كامل الإطار (يدوي)</span>
               </>
             ) : (
               <>
                 <Crop className="w-3.5 h-3.5 text-amber-400" />
-                <span className="text-[11px] font-bold">تحديد ذكي</span>
+                <span className="text-[11px] font-bold">تحديد ذكي (قص الخلفية)</span>
               </>
             )}
           </button>
@@ -934,36 +1048,47 @@ export const CameraView: React.FC<CameraViewProps> = ({
           </div>
         )}
 
-        {/* Viewfinder Framing Guide — Sleek corner brackets without center clutter */}
-        <div className="pointer-events-none absolute inset-x-6 inset-y-12 border border-emerald-500/20 rounded-2xl">
-          <div className="absolute -top-1 -left-1 w-7 h-7 border-t-4 border-l-4 border-emerald-400 rounded-tl-xl" />
-          <div className="absolute -top-1 -right-1 w-7 h-7 border-t-4 border-r-4 border-emerald-400 rounded-tr-xl" />
-          <div className="absolute -bottom-1 -left-1 w-7 h-7 border-b-4 border-l-4 border-emerald-400 rounded-bl-xl" />
-          <div className="absolute -bottom-1 -right-1 w-7 h-7 border-b-4 border-r-4 border-emerald-400 rounded-br-xl" />
-
-          {/* Simple non-intrusive status pill at the bottom of the viewfinder */}
-          <div className="absolute bottom-4 inset-x-0 text-center">
-            <span className="text-xs bg-black/70 backdrop-blur-md px-4 py-2 rounded-full text-gray-200 border border-white/10 inline-flex items-center justify-center gap-2 font-arabic shadow-lg">
-              {scanMode === 'idcard' ? (
-                <span className="text-emerald-400 font-bold flex items-center gap-1.5">
-                  <CreditCard className="w-3.5 h-3.5" />
-                  <span>{idCardStep === 'front' ? 'ضع الوجه الأمامي للهوية داخل الإطار' : 'ضع الوجه الخلفي للهوية'}</span>
-                </span>
-              ) : isQuadSteady ? (
-                <span className="text-emerald-300 font-bold flex items-center gap-1.5 animate-pulse">
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>تم تثبيت المستند بنجاح</span>
-                </span>
-              ) : pagesCount > 0 ? (
-                <span className="text-emerald-300 font-semibold flex items-center gap-1.5">
-                  <FileText className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>{pagesCount} صفحات مجمعة — التقط المزيد أو اضغط إنهاء</span>
-                </span>
-              ) : (
-                <span className="text-gray-300">وجّه الكاميرا نحو المستند ثم اضغط زر الالتقاط</span>
-              )}
-            </span>
+        {/* Exact Sensor Framing Boundary — 100% WYSIWYG Camera Sensor Bounds */}
+        {renderedBounds && (
+          <div
+            style={{
+              left: `${renderedBounds.x}px`,
+              top: `${renderedBounds.y}px`,
+              width: `${renderedBounds.width}px`,
+              height: `${renderedBounds.height}px`,
+            }}
+            className="pointer-events-none absolute border border-emerald-500/25 transition-all duration-150"
+          >
+            {/* 4 Sensor Frame Corner Marks */}
+            <div className="absolute -top-1 -left-1 w-6 h-6 border-t-2 border-l-2 border-emerald-400" />
+            <div className="absolute -top-1 -right-1 w-6 h-6 border-t-2 border-r-2 border-emerald-400" />
+            <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-2 border-l-2 border-emerald-400" />
+            <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-2 border-r-2 border-emerald-400" />
           </div>
+        )}
+
+        {/* Dynamic Status Pill */}
+        <div className="absolute bottom-4 inset-x-0 text-center pointer-events-none z-20">
+          <span className="text-xs bg-black/75 backdrop-blur-md px-4 py-2 rounded-full text-gray-200 border border-white/10 inline-flex items-center justify-center gap-2 font-arabic shadow-lg">
+            {scanMode === 'idcard' ? (
+              <span className="text-emerald-400 font-bold flex items-center gap-1.5">
+                <CreditCard className="w-3.5 h-3.5" />
+                <span>{idCardStep === 'front' ? 'ضع الوجه الأمامي للهوية داخل الإطار' : 'ضع الوجه الخلفي للهوية'}</span>
+              </span>
+            ) : isQuadSteady ? (
+              <span className="text-emerald-300 font-bold flex items-center gap-1.5 animate-pulse">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                <span>تم تثبيت المستند بنجاح</span>
+              </span>
+            ) : pagesCount > 0 ? (
+              <span className="text-emerald-300 font-semibold flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{pagesCount} صفحات مجمعة — التقط المزيد أو اضغط إنهاء</span>
+              </span>
+            ) : (
+              <span className="text-gray-300">وجّه الكاميرا نحو المستند ثم اضغط زر الالتقاط</span>
+            )}
+          </span>
         </div>
       </div>
 
