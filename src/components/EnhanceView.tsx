@@ -1237,96 +1237,97 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
       />
 
       {/* Security Watermark Dialog Modal */}
+      {/* Security Watermark Modal */}
       {isWatermarkOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-6 select-none">
-          <div className="w-full max-w-sm bg-[#161616] border border-white/10 rounded-3xl p-6 shadow-2xl flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Stamp className="w-5 h-5 text-emerald-400" />
-                <span className="text-sm font-semibold text-white">Security Watermark</span>
-              </div>
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-6 select-none font-arabic">
+          <div className="w-full max-w-sm bg-[#12161f] border border-white/10 rounded-3xl p-6 shadow-2xl flex flex-col gap-4 text-right">
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
               <button
                 onClick={() => setIsWatermarkOpen(false)}
-                className="p-1.5 rounded-full glass-button text-gray-400"
+                className="p-1.5 rounded-full glass-button text-gray-400 hover:text-white"
               >
                 ✕
               </button>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-white">العلامة المائية الأمنية</span>
+                <Stamp className="w-5 h-5 text-emerald-400" />
+              </div>
             </div>
 
-            <p className="text-xs text-gray-400">
-              Prints diagonal semi-transparent security text across all pages in the PDF.
+            <p className="text-xs text-gray-400 leading-relaxed">
+              طباعة نص حماية شبه شفاف على صفحات مستند الـ PDF لمنع النسخ غير المصرح به.
             </p>
 
             {/* Watermark Layout Style: Single Center vs Full Page Tiled Grid */}
             <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-white/5 border border-white/10 text-xs">
               <button
                 onClick={() => setWatermarkStyle('diagonal')}
-                className={`flex-1 py-1.5 rounded-xl font-medium transition-all ${
+                className={`flex-1 py-1.5 rounded-xl font-bold transition-all ${
                   watermarkStyle === 'diagonal'
-                    ? 'bg-emerald-500 text-black font-semibold shadow'
+                    ? 'bg-emerald-500 text-black shadow'
                     : 'text-gray-400'
                 }`}
               >
-                Single Center
+                قطري في المنتصف
               </button>
               <button
                 onClick={() => setWatermarkStyle('tiled')}
-                className={`flex-1 py-1.5 rounded-xl font-medium transition-all ${
+                className={`flex-1 py-1.5 rounded-xl font-bold transition-all ${
                   watermarkStyle === 'tiled'
-                    ? 'bg-emerald-500 text-black font-semibold shadow'
+                    ? 'bg-emerald-500 text-black shadow'
                     : 'text-gray-400'
                 }`}
               >
-                Tiled Anti-Fraud Grid
+                شبكة حماية مكررة
               </button>
             </div>
 
             <input
               type="text"
-              placeholder="e.g. CONFIDENTIAL, DRAFT, COPY..."
+              placeholder="اكتب نص العلامة المائية (مثال: سري، مسودة...)"
               value={watermarkText}
               onChange={(e) => setWatermarkText(e.target.value)}
-              className="w-full bg-white/5 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/60"
+              className="w-full bg-white/5 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/60 text-right font-arabic"
             />
 
             {/* Quick Presets */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {['CONFIDENTIAL', 'ORIGINAL', 'DRAFT', 'COPY', 'PAID'].map((preset) => (
+            <div className="flex items-center justify-end gap-1.5 flex-wrap">
+              {['سري للغاية', 'نسخة للمراجعة', 'مسودة', 'مدفوع', 'CONFIDENTIAL', 'COPY'].map((preset) => (
                 <button
                   key={preset}
                   onClick={() => setWatermarkText(preset)}
-                  className="px-2.5 py-1 rounded-lg bg-white/5 text-[10px] text-gray-300 border border-white/5 hover:border-emerald-400/40 active:scale-95"
+                  className="px-2.5 py-1 rounded-lg bg-white/5 text-[10px] text-gray-300 border border-white/5 hover:border-emerald-400/40 active:scale-95 font-arabic"
                 >
                   {preset}
                 </button>
               ))}
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/5">
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/5">
               {watermarkText && (
                 <button
                   onClick={() => {
                     setWatermarkText('');
                     setIsWatermarkOpen(false);
-                    setToastMsg('Watermark removed');
+                    setToastMsg('تمت إزالة العلامة المائية');
                     setTimeout(() => setToastMsg(''), 2000);
                   }}
-                  className="px-3.5 py-2 rounded-xl text-xs text-red-400 glass-button mr-auto"
+                  className="px-3.5 py-2 rounded-xl text-xs text-red-400 glass-button font-bold"
                 >
-                  Remove
+                  إزالة العلامة
                 </button>
               )}
               <button
                 onClick={() => {
                   setIsWatermarkOpen(false);
                   if (watermarkText.trim()) {
-                    setToastMsg(`Watermark set: "${watermarkText.trim()}"`);
+                    setToastMsg(`تم ضبط العلامة: "${watermarkText.trim()}"`);
                     setTimeout(() => setToastMsg(''), 2200);
                   }
                 }}
-                className="px-5 py-2 rounded-xl bg-emerald-500 text-black font-bold text-xs emerald-glow active:scale-95"
+                className="px-5 py-2 rounded-xl bg-emerald-500 text-black font-bold text-xs emerald-glow active:scale-95 mr-auto"
               >
-                Apply
+                تطبيق العلامة
               </button>
             </div>
           </div>
