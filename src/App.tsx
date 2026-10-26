@@ -44,43 +44,65 @@ export const App: React.FC = () => {
   }, [step, pages.length]);
 
   const handleCapture = (imageSrc: string, isBatchMode: boolean) => {
-    // If we are retaking a specific page, always show manual crop view for precision
+    // If retaking or in single mode, immediately open CropView
     if (retakeTargetIndex !== null || !isBatchMode) {
       setCurrentRawImage(imageSrc);
       setStep('crop');
       return;
     }
 
-    // True Rapid Batch Mode: Process edge detection and perspective warp in background
+    // CamScanner Multi-Page Mode: Process page in background
     const img = new Image();
     img.onload = async () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      ctx.drawImage(img, 0, 0);
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.drawImage(img, 0, 0);
 
-      const quad = detectDocumentCorners(canvas);
+        const quad = detectDocumentCorners(canvas);
+        const warpedCanvas = warpPerspective(canvas, quad);
+        const filteredCanvas = await applyFilterAsync(warpedCanvas, 'magic');
 
-      const widthA = Math.hypot(quad.topRight.x - quad.topLeft.x, quad.topRight.y - quad.topLeft.y);
-      const widthB = Math.hypot(quad.bottomRight.x - quad.bottomLeft.x, quad.bottomRight.y - quad.bottomLeft.y);
-      const maxWidth = Math.max(widthA, widthB);
+        const pageId = `page_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+        const thumbnailDataUrl = await storePageToDisk(
+          pageId,
+          imageSrc,
+          warpedCanvas,
+          filteredCanvas,
+          'magic'
+        );
 
-      const heightA = Math.hypot(quad.topRight.x - quad.bottomRight.x, quad.topRight.y - quad.bottomRight.y);
-      const heightB = Math.hypot(quad.topLeft.x - quad.bottomLeft.x, quad.topLeft.y - quad.bottomLeft.y);
-      const maxHeight = Math.max(heightA, heightB);
+        const newPage: ScannedPage = {
+          id: pageId,
+          thumbnailDataUrl,
+          quad,
+          filter: 'magic',
+          timestamp: Date.now(),
+        };
 
-      const targetWidth = Math.min(2400, Math.max(800, Math.round(maxWidth)));
-      const targetHeight = Math.min(3200, Math.max(1000, Math.round(maxHeight)));
+        setPages((prev) => [...prev, newPage]);
+      } catch (err) {
+        console.warn('Batch page capture error:', err);
+      }
+    };
+    img.onerror = (e) => {
+      console.warn('Captured image load error:', e);
+    };
+    img.src = imageSrc;
+  };
 
-      const warpedCanvas = warpPerspective(canvas, quad, targetWidth, targetHeight);
+  const handleCropConfirm = async (warpedCanvas: HTMLCanvasElement, quad: Quad) => {
+    try {
+      const pageId = `page_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
       const filteredCanvas = await applyFilterAsync(warpedCanvas, 'magic');
 
-      const pageId = `page_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      // Persist full-res raw & filtered buffers to disk storage
       const thumbnailDataUrl = await storePageToDisk(
         pageId,
-        imageSrc,
+        currentRawImage,
         warpedCanvas,
         filteredCanvas,
         'magic'
@@ -94,48 +116,25 @@ export const App: React.FC = () => {
         timestamp: Date.now(),
       };
 
-      setPages((prev) => [...prev, newPage]);
-    };
-    img.src = imageSrc;
-  };
-
-  const handleCropConfirm = async (warpedCanvas: HTMLCanvasElement, quad: Quad) => {
-    const pageId = `page_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const filteredCanvas = await applyFilterAsync(warpedCanvas, 'magic');
-
-    // Persist full-res raw & filtered buffers to disk storage to avoid mobile OOM
-    const thumbnailDataUrl = await storePageToDisk(
-      pageId,
-      currentRawImage,
-      warpedCanvas,
-      filteredCanvas,
-      'magic'
-    );
-
-    const newPage: ScannedPage = {
-      id: pageId,
-      thumbnailDataUrl,
-      quad,
-      filter: 'magic',
-      timestamp: Date.now(),
-    };
-
-    if (retakeTargetIndex !== null) {
-      setPages((prev) => {
-        const updated = [...prev];
-        if (retakeTargetIndex >= 0 && retakeTargetIndex < updated.length) {
-          updated[retakeTargetIndex] = newPage;
-        }
-        return updated;
-      });
-      setRetakeTargetIndex(null);
-    } else {
-      setPages((prev) => [...prev, newPage]);
+      if (retakeTargetIndex !== null) {
+        setPages((prev) => {
+          const updated = [...prev];
+          if (retakeTargetIndex >= 0 && retakeTargetIndex < updated.length) {
+            updated[retakeTargetIndex] = newPage;
+          }
+          return updated;
+        });
+        setRetakeTargetIndex(null);
+      } else {
+        setPages((prev) => [...prev, newPage]);
+      }
+    } catch (err) {
+      console.warn('Crop confirm error:', err);
+    } finally {
+      setCurrentRawImage('');
+      // Single mode or recrop always goes directly to review to see the document!
+      setStep('review');
     }
-
-    setCurrentRawImage('');
-    // Single mode or recrop always goes directly to review to see the document!
-    setStep('review');
   };
 
   const handleEditCrop = async (index: number) => {

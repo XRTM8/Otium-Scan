@@ -2,10 +2,10 @@ import { Point, Quad } from './types';
 import { getDefaultQuad, orderCorners } from './geometry';
 
 /**
- * Enterprise Document Edge Detector.
- * Analyzes contrast boundaries to locate documents on backgrounds.
- * If no clear document contour is found with high confidence,
- * it returns a clean default quad with a 5% margin (full document view).
+ * Intelligent Document Edge Detector.
+ * Only returns an inset polygon if a clear, high-contrast document contour is detected.
+ * For general scenes, walls, books, or low-contrast backgrounds, it safely defaults
+ * to a clean full-frame quad (2% margin) so the user's photo is never truncated.
  */
 export function detectDocumentCorners(
   sourceImage: HTMLImageElement | HTMLCanvasElement
@@ -15,131 +15,162 @@ export function detectDocumentCorners(
 
   if (naturalW === 0 || naturalH === 0) return getDefaultQuad(1000, 1000);
 
-  // Default fallback: 5% inset
-  const fallbackQuad: Quad = {
-    topLeft: { x: Math.round(naturalW * 0.05), y: Math.round(naturalH * 0.05) },
-    topRight: { x: Math.round(naturalW * 0.95), y: Math.round(naturalH * 0.05) },
-    bottomRight: { x: Math.round(naturalW * 0.95), y: Math.round(naturalH * 0.95) },
-    bottomLeft: { x: Math.round(naturalW * 0.05), y: Math.round(naturalH * 0.95) },
+  // Default: Full frame with subtle 2% margin for clean touch handle positioning
+  const fullFrameQuad: Quad = {
+    topLeft: { x: Math.round(naturalW * 0.02), y: Math.round(naturalH * 0.02) },
+    topRight: { x: Math.round(naturalW * 0.98), y: Math.round(naturalH * 0.02) },
+    bottomRight: { x: Math.round(naturalW * 0.98), y: Math.round(naturalH * 0.98) },
+    bottomLeft: { x: Math.round(naturalW * 0.02), y: Math.round(naturalH * 0.98) },
   };
 
-  // Downsample to 320px for rapid ~8ms execution
-  const scale = Math.min(1, 320 / Math.max(naturalW, naturalH));
-  const workW = Math.max(20, Math.round(naturalW * scale));
-  const workH = Math.max(20, Math.round(naturalH * scale));
-
-  const canvas = document.createElement('canvas');
-  canvas.width = workW;
-  canvas.height = workH;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) return fallbackQuad;
-
-  ctx.drawImage(sourceImage, 0, 0, workW, workH);
-  const imgData = ctx.getImageData(0, 0, workW, workH);
-  const data = imgData.data;
-
-  const totalPixels = workW * workH;
-  const gray = new Uint8Array(totalPixels);
-
-  // Compute grayscale
-  for (let i = 0, j = 0; i < data.length; i += 4, j++) {
-    gray[j] = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
-  }
-
-  // Sobel Edge Detection
-  const edges = new Uint8Array(totalPixels);
-  for (let y = 1; y < workH - 1; y++) {
-    for (let x = 1; x < workW - 1; x++) {
-      const idx = y * workW + x;
-      const gx =
-        -gray[idx - workW - 1] + gray[idx - workW + 1] +
-        -2 * gray[idx - 1] + 2 * gray[idx + 1] +
-        -gray[idx + workW - 1] + gray[idx + workW + 1];
-      const gy =
-        -gray[idx - workW - 1] - 2 * gray[idx - workW] - gray[idx - workW + 1] +
-        gray[idx + workW - 1] + 2 * gray[idx + workW] + gray[idx + workW + 1];
-      edges[idx] = Math.min(255, Math.hypot(gx, gy));
-    }
-  }
-
-  // Cast inward rays from the 4 outer margins towards center
-  const marginX = Math.round(workW * 0.04);
-  const marginY = Math.round(workH * 0.04);
-  const maxSearchX = Math.round(workW * 0.38);
-  const maxSearchY = Math.round(workH * 0.38);
-  const edgeThreshold = 45;
-
-  // Find top edge
-  let topY = marginY;
-  for (let y = marginY; y < maxSearchY; y++) {
-    let edgeCount = 0;
-    const row = y * workW;
-    for (let x = Math.round(workW * 0.2); x < Math.round(workW * 0.8); x++) {
-      if (edges[row + x] > edgeThreshold) edgeCount++;
-    }
-    if (edgeCount > workW * 0.22) {
-      topY = y;
-      break;
-    }
-  }
-
-  // Find bottom edge
-  let bottomY = workH - marginY;
-  for (let y = workH - marginY; y > workH - maxSearchY; y--) {
-    let edgeCount = 0;
-    const row = y * workW;
-    for (let x = Math.round(workW * 0.2); x < Math.round(workW * 0.8); x++) {
-      if (edges[row + x] > edgeThreshold) edgeCount++;
-    }
-    if (edgeCount > workW * 0.22) {
-      bottomY = y;
-      break;
-    }
-  }
-
-  // Find left edge
-  let leftX = marginX;
-  for (let x = marginX; x < maxSearchX; x++) {
-    let edgeCount = 0;
-    for (let y = Math.round(workH * 0.2); y < Math.round(workH * 0.8); y++) {
-      if (edges[y * workW + x] > edgeThreshold) edgeCount++;
-    }
-    if (edgeCount > workH * 0.22) {
-      leftX = x;
-      break;
-    }
-  }
-
-  // Find right edge
-  let rightX = workW - marginX;
-  for (let x = workW - marginX; x > workW - maxSearchX; x--) {
-    let edgeCount = 0;
-    for (let y = Math.round(workH * 0.2); y < Math.round(workH * 0.8); y++) {
-      if (edges[y * workW + x] > edgeThreshold) edgeCount++;
-    }
-    if (edgeCount > workH * 0.22) {
-      rightX = x;
-      break;
-    }
-  }
-
-  // Sanity check: span must be at least 40% of the image
-  const detectedWidth = (rightX - leftX) / scale;
-  const detectedHeight = (bottomY - topY) / scale;
-
-  if (detectedWidth < naturalW * 0.4 || detectedHeight < naturalH * 0.4) {
-    return fallbackQuad;
-  }
-
-  const pTL: Point = { x: Math.round(leftX / scale), y: Math.round(topY / scale) };
-  const pTR: Point = { x: Math.round(rightX / scale), y: Math.round(topY / scale) };
-  const pBR: Point = { x: Math.round(rightX / scale), y: Math.round(bottomY / scale) };
-  const pBL: Point = { x: Math.round(leftX / scale), y: Math.round(bottomY / scale) };
-
   try {
+    // Downsample to 240px for rapid contrast analysis
+    const scale = Math.min(1, 240 / Math.max(naturalW, naturalH));
+    const workW = Math.max(20, Math.round(naturalW * scale));
+    const workH = Math.max(20, Math.round(naturalH * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = workW;
+    canvas.height = workH;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return fullFrameQuad;
+
+    ctx.drawImage(sourceImage, 0, 0, workW, workH);
+    const imgData = ctx.getImageData(0, 0, workW, workH);
+    const data = imgData.data;
+
+    // Calculate luminance & variance
+    let sumLum = 0;
+    const totalPixels = workW * workH;
+    const lum = new Uint8Array(totalPixels);
+
+    for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+      const l = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+      lum[j] = l;
+      sumLum += l;
+    }
+
+    // Check if the center area differs significantly in brightness from the outer border
+    // (the classic hallmark of a sheet of paper on a desk)
+    const marginX = Math.round(workW * 0.1);
+    const marginY = Math.round(workH * 0.1);
+
+    let borderLumSum = 0;
+    let borderCount = 0;
+
+    for (let x = 0; x < workW; x++) {
+      borderLumSum += lum[x]; // top border
+      borderLumSum += lum[(workH - 1) * workW + x]; // bottom border
+      borderCount += 2;
+    }
+    for (let y = 1; y < workH - 1; y++) {
+      borderLumSum += lum[y * workW]; // left border
+      borderLumSum += lum[y * workW + (workW - 1)]; // right border
+      borderCount += 2;
+    }
+
+    const borderAvgLum = borderLumSum / Math.max(1, borderCount);
+
+    let centerLumSum = 0;
+    let centerCount = 0;
+    for (let y = marginY; y < workH - marginY; y++) {
+      const row = y * workW;
+      for (let x = marginX; x < workW - marginX; x++) {
+        centerLumSum += lum[row + x];
+        centerCount++;
+      }
+    }
+
+    const centerAvgLum = centerLumSum / Math.max(1, centerCount);
+    const contrastDifference = Math.abs(centerAvgLum - borderAvgLum);
+
+    // If there is no strong global contrast between center document and background (< 32),
+    // do NOT guess random lines! Return the full frame.
+    if (contrastDifference < 32) {
+      return fullFrameQuad;
+    }
+
+    // High contrast detected: compute Sobel to locate document edges
+    const edges = new Uint8Array(totalPixels);
+    for (let y = 1; y < workH - 1; y++) {
+      for (let x = 1; x < workW - 1; x++) {
+        const idx = y * workW + x;
+        const gx =
+          -lum[idx - workW - 1] + lum[idx - workW + 1] +
+          -2 * lum[idx - 1] + 2 * lum[idx + 1] +
+          -lum[idx + workW - 1] + lum[idx + workW + 1];
+        const gy =
+          -lum[idx - workW - 1] - 2 * lum[idx - workW] - lum[idx - workW + 1] +
+          lum[idx + workW - 1] + 2 * lum[idx + workW] + lum[idx + workW + 1];
+        edges[idx] = Math.min(255, Math.hypot(gx, gy));
+      }
+    }
+
+    // Search for the 4 bounds, restricting search to maximum 22% from each outer edge
+    // so we never create a small rectangle in the middle of the screen!
+    const maxSearchX = Math.round(workW * 0.22);
+    const maxSearchY = Math.round(workH * 0.22);
+    const edgeThreshold = 55;
+
+    let topY = Math.round(workH * 0.02);
+    for (let y = Math.round(workH * 0.02); y < maxSearchY; y++) {
+      let count = 0;
+      const row = y * workW;
+      for (let x = Math.round(workW * 0.25); x < Math.round(workW * 0.75); x++) {
+        if (edges[row + x] > edgeThreshold) count++;
+      }
+      if (count > workW * 0.25) {
+        topY = y;
+        break;
+      }
+    }
+
+    let bottomY = workH - Math.round(workH * 0.02);
+    for (let y = workH - Math.round(workH * 0.02); y > workH - maxSearchY; y--) {
+      let count = 0;
+      const row = y * workW;
+      for (let x = Math.round(workW * 0.25); x < Math.round(workW * 0.75); x++) {
+        if (edges[row + x] > edgeThreshold) count++;
+      }
+      if (count > workW * 0.25) {
+        bottomY = y;
+        break;
+      }
+    }
+
+    let leftX = Math.round(workW * 0.02);
+    for (let x = Math.round(workW * 0.02); x < maxSearchX; x++) {
+      let count = 0;
+      for (let y = Math.round(workH * 0.25); y < Math.round(workH * 0.75); y++) {
+        if (edges[y * workW + x] > edgeThreshold) count++;
+      }
+      if (count > workH * 0.25) {
+        leftX = x;
+        break;
+      }
+    }
+
+    let rightX = workW - Math.round(workW * 0.02);
+    for (let x = workW - Math.round(workW * 0.02); x > workW - maxSearchX; x--) {
+      let count = 0;
+      for (let y = Math.round(workH * 0.25); y < Math.round(workH * 0.75); y++) {
+        if (edges[y * workW + x] > edgeThreshold) count++;
+      }
+      if (count > workH * 0.25) {
+        rightX = x;
+        break;
+      }
+    }
+
+    const pTL: Point = { x: Math.round(leftX / scale), y: Math.round(topY / scale) };
+    const pTR: Point = { x: Math.round(rightX / scale), y: Math.round(topY / scale) };
+    const pBR: Point = { x: Math.round(rightX / scale), y: Math.round(bottomY / scale) };
+    const pBL: Point = { x: Math.round(leftX / scale), y: Math.round(bottomY / scale) };
+
     return orderCorners([pTL, pTR, pBR, pBL]);
-  } catch {
-    return fallbackQuad;
+  } catch (err) {
+    console.warn('Corner detection error, falling back to full frame:', err);
+    return fullFrameQuad;
   }
 }
 

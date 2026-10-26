@@ -4,9 +4,11 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
+import android.view.View
 import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -15,6 +17,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResult
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity : TauriActivity() {
   private var filePickerCallback: ValueCallback<Array<Uri>>? = null
@@ -27,6 +30,14 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+
+    // Flagship Enterprise UI: Match status & navigation bars with Otium Obsidian (#07090E)
+    window.statusBarColor = Color.parseColor("#07090e")
+    window.navigationBarColor = Color.parseColor("#07090e")
+    val controller = WindowInsetsControllerCompat(window, window.decorView)
+    controller.isAppearanceLightStatusBars = false
+    controller.isAppearanceLightNavigationBars = false
+
     ensureCameraPermissions()
   }
 
@@ -63,6 +74,15 @@ class MainActivity : TauriActivity() {
 
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
+
+    // Hardware acceleration & performance settings for smooth camera and rendering
+    webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+    webView.settings.apply {
+      domStorageEnabled = true
+      databaseEnabled = true
+      allowFileAccess = true
+      mediaPlaybackRequiresUserGesture = false
+    }
 
     val originalChromeClient = webView.webChromeClient
 

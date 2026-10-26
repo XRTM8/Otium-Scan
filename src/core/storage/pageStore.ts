@@ -48,6 +48,23 @@ export interface StoredPageRecord {
   timestamp: number;
 }
 
+function base64ToBlob(dataUrl: string): Blob {
+  try {
+    const parts = dataUrl.split(',');
+    const mime = parts[0]?.match(/:(.*?);/)?.[1] || 'image/jpeg';
+    const bstr = atob(parts[1] || '');
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new Blob([u8arr], { type: mime });
+  } catch (err) {
+    console.warn('base64ToBlob conversion error:', err);
+    return new Blob([], { type: 'image/jpeg' });
+  }
+}
+
 /**
  * Saves a scanned page to local disk cache and returns its thumbnail
  */
@@ -58,11 +75,10 @@ export async function storePageToDisk(
   filteredCanvas: HTMLCanvasElement,
   filter: string
 ): Promise<string> {
-  const db = await getDB();
+  const originalBlob = base64ToBlob(originalDataUrl);
 
-  // Convert raw images to compact Blobs
-  const [originalBlob, warpedBlob, filteredBlob] = await Promise.all([
-    fetch(originalDataUrl).then((r) => r.blob()),
+  // Convert warped and filtered canvases to compact Blobs
+  const [warpedBlob, filteredBlob] = await Promise.all([
     new Promise<Blob>((resolve) =>
       warpedCanvas.toBlob((b) => resolve(b || new Blob()), 'image/jpeg', 0.88)
     ),
@@ -73,14 +89,14 @@ export async function storePageToDisk(
 
   // Create ultra-compact 120px thumbnail for RAM
   const thumbCanvas = document.createElement('canvas');
-  const aspect = filteredCanvas.width / filteredCanvas.height;
+  const aspect = filteredCanvas.width / Math.max(1, filteredCanvas.height);
   thumbCanvas.width = 120;
   thumbCanvas.height = Math.round(120 / aspect);
   const tCtx = thumbCanvas.getContext('2d');
   if (tCtx) {
     tCtx.drawImage(filteredCanvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
   }
-  const thumbnailDataUrl = thumbCanvas.toDataURL('image/jpeg', 0.6);
+  const thumbnailDataUrl = thumbCanvas.toDataURL('image/jpeg', 0.65);
 
   const record: StoredPageRecord = {
     id,
@@ -92,14 +108,27 @@ export async function storePageToDisk(
     timestamp: Date.now(),
   };
 
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
-    const req = store.put(record);
-
-    req.onsuccess = () => resolve(thumbnailDataUrl);
-    req.onerror = () => reject(req.error);
-  });
+  try {
+    const db = await getDB();
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.put(record);
+        req.onsuccess = () => resolve(thumbnailDataUrl);
+        req.onerror = () => {
+          console.warn('IndexedDB put error, falling back:', req.error);
+          resolve(thumbnailDataUrl);
+        };
+      } catch (e) {
+        console.warn('IDB transaction error, falling back:', e);
+        resolve(thumbnailDataUrl);
+      }
+    });
+  } catch (e) {
+    console.warn('getDB failed, falling back to memory thumbnail:', e);
+    return thumbnailDataUrl;
+  }
 }
 
 /**
