@@ -23,7 +23,7 @@ export function isNativeAndroid(): boolean {
   return typeof window !== 'undefined' && Boolean(window.OtiumNative);
 }
 
-export async function blobToBase64(blob: Blob): Promise<string> {
+async function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onloadend = () => {
@@ -38,7 +38,7 @@ export async function blobToBase64(blob: Blob): Promise<string> {
 /**
  * Share PDF or file using native Android Share Sheet or Web Share API
  */
-export async function nativeShareFile(
+async function nativeShareFile(
   blob: Blob,
   filename: string,
   title?: string,
@@ -98,7 +98,7 @@ export async function nativeShareImage(blob: Blob, filename: string, title?: str
 /**
  * Save file directly to Android Downloads or Pictures directory with system toast
  */
-export async function nativeSaveFile(
+async function nativeSaveFile(
   blob: Blob,
   filename: string,
   mimeType?: string
@@ -195,7 +195,7 @@ export async function nativeFetchUrl(url: string): Promise<string | null> {
 /**
  * Standard browser blob download helper
  */
-export function downloadBlob(blob: Blob, filename: string): void {
+function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

@@ -1,6 +1,6 @@
 import { Point, Quad } from './types';
 
-export function distance(p1: Point, p2: Point): number {
+function distance(p1: Point, p2: Point): number {
   return Math.hypot(p2.x - p1.x, p2.y - p1.y);
 }
 

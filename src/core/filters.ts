@@ -26,9 +26,9 @@ export async function applyFilterAsync(
 }
 
 /**
- * Synchronous Document Enhancement Filter Engine.
+ * Synchronous Document Enhancement Filter Engine (Internal).
  */
-export function applyFilter(
+function applyFilter(
   sourceCanvas: HTMLCanvasElement,
   filter: FilterType
 ): HTMLCanvasElement {

@@ -10,7 +10,7 @@ import {
 import { loadPageCanvasFromDisk, updateStoredPageFilter, storePageToDisk } from '../core/storage/pageStore';
 import { saveDocumentToLibrary } from '../core/storage/documentLibrary';
 import { dewarpBookCurvature } from '../core/geometry';
-import { performOcr } from '../core/ocr/ocrEngine';
+import { performOcr, terminateOcrWorker } from '../core/ocr/ocrEngine';
 import { detectBarcodesFromCanvas, DetectedBarcode } from '../core/barcode';
 import { nativeSharePdf, nativeSavePdf, nativeOpenInOtium, nativeSaveImage } from '../core/nativeBridge';
 import { SignatureModal } from './SignatureModal';
@@ -134,6 +134,13 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
       }
     };
   }, [fullResPreviewUrl]);
+
+  // Terminate OCR WebAssembly worker when unmounting review to reclaim RAM
+  useEffect(() => {
+    return () => {
+      terminateOcrWorker().catch(() => {});
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;

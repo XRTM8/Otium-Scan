@@ -87,7 +87,7 @@ export async function deleteDocumentFromLibrary(id: string): Promise<void> {
   });
 }
 
-export interface VaultBackupEnvelope {
+interface VaultBackupEnvelope {
   app: 'Otium Scan';
   version: 1;
   exportedAt: number;

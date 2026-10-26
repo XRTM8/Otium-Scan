@@ -1,4 +1,23 @@
-# Otium Scan 0.1.0 — Initial Official Release
+# Otium Scan 0.2.8 — Architecture Polish & Clean Enterprise Release
+
+إصدار استقرار وتحسين شامل للهوية البصرية، وتنظيف الشيفرة البرمجية، وتحرير ذاكرة النظام:
+
+## 🌟 أبرز التحديثات في الإصدار v0.2.8
+- **تنظيف شامل للأكواد الميتة (Dead Code Elimination):**
+  - إزالة `imageWorker.ts` القديم وحزمته غير المستخدمة لمنع تكرار منطق المعالجة.
+  - إزالة سكربتات بناء الأيقونات القديمة والمؤقتة (`build-icons.cjs`).
+  - تحويل وتخصيص الدوال والواجهات الداخلية غير المصدرة لتسريع عملية الربط وتقليل مساحة الحزمة.
+- **إدارة ذكية للذاكرة وتحرير موارد OCR (Memory Leak Prevention):**
+  - إنهاء تلقائي لـ WebAssembly Worker الخاص بمحرك Tesseract.js عند مغادرة شاشة المعاينة لتحرير أكثر من 35 ميجابايت من ذاكرة الوصول العشوائي (RAM).
+- **اعتماد هوية PAIR 01 ثنائية الألوان مع قنوات RGBA كاملة:**
+  - توليد وتضمين حزمة الأيقونات الرسمية بدقة 4 قنوات (RGBA) لجميع قياسات Tauri وسطح المكتب وجميع مجلدات Android Mipmaps (المربعة، والدائرية، والتكيفية Adaptive Foreground).
+  - حل مشكلة بناء Rust Macro على بيئة لينكس وGitHub Actions بنسبة 100%.
+- **استقرار عدسة الكاميرا بنظام WYSIWYG والحدود الذكية:**
+  - احتواء كامل للحساس بنسبة 100% دون قص الحواف أو تشويه الأبعاد.
+
+---
+
+
 
 The ultimate privacy-first, ultra-compact mobile document scanner companion to Otium Reader. Distributed strictly as standalone Android APKs per ABI architecture (~7MB).
 

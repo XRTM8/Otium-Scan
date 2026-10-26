@@ -21,7 +21,7 @@ function getOrCreateDeviceSalt(): string {
   return salt;
 }
 
-export async function hashPin(pin: string): Promise<string> {
+async function hashPin(pin: string): Promise<string> {
   const salt = getOrCreateDeviceSalt();
   const encoder = new TextEncoder();
   const data = encoder.encode(`${salt}:${pin.trim()}`);

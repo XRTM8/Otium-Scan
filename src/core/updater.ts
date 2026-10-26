@@ -6,7 +6,7 @@
 
 import { nativeFetchUrl } from './nativeBridge';
 
-export const APP_CURRENT_VERSION = '0.2.7';
+export const APP_CURRENT_VERSION = '0.2.8';
 
 export interface ReleaseAsset {
   name: string;
@@ -29,7 +29,7 @@ export interface UpdateCheckResult {
  * Compares two semantic version strings (e.g. "0.2.1" vs "0.2.0").
  * Returns true if vCandidate is strictly greater than vCurrent.
  */
-export function isNewerVersion(vCandidate: string, vCurrent: string): boolean {
+function isNewerVersion(vCandidate: string, vCurrent: string): boolean {
   const cleanCand = vCandidate.replace(/^v/i, '').trim();
   const cleanCurr = vCurrent.replace(/^v/i, '').trim();
 

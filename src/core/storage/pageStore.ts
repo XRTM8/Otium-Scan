@@ -38,7 +38,7 @@ async function getDB(): Promise<IDBDatabase> {
   });
 }
 
-export interface StoredPageRecord {
+interface StoredPageRecord {
   id: string;
   originalBlob: Blob;
   warpedBlob: Blob;

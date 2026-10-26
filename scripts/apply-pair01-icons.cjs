@@ -51,7 +51,8 @@ async function generateSuite(masterImagePath, targetBaseDir, isTauriProject = fa
       const targetPath = path.join(targetBaseDir, item.file);
       await sharp(masterBuffer)
         .resize(item.size, item.size)
-        .png({ quality: 100 })
+        .ensureAlpha()
+        .png({ palette: false, quality: 100 })
         .toFile(targetPath);
     }
   }
@@ -66,17 +67,23 @@ async function generateSuite(masterImagePath, targetBaseDir, isTauriProject = fa
     // Legacy square/squircle
     await sharp(masterBuffer)
       .resize(size, size)
-      .png({ quality: 100 })
+      .ensureAlpha()
+      .png({ palette: false, quality: 100 })
       .toFile(path.join(dir, 'ic_launcher.png'));
 
     // Round icon with anti-aliased circular mask
-    const squareBuffer = await sharp(masterBuffer).resize(size, size).png().toBuffer();
+    const squareBuffer = await sharp(masterBuffer)
+      .resize(size, size)
+      .ensureAlpha()
+      .png({ palette: false })
+      .toBuffer();
     const roundMask = Buffer.from(
       `<svg width="${size}" height="${size}"><circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="#fff"/></svg>`
     );
     await sharp(squareBuffer)
       .composite([{ input: roundMask, blend: 'dest-in' }])
-      .png({ quality: 100 })
+      .ensureAlpha()
+      .png({ palette: false, quality: 100 })
       .toFile(path.join(dir, 'ic_launcher_round.png'));
   }
 
