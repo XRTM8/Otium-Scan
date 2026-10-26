@@ -13,7 +13,7 @@ import {
   loadOriginalDataUrlFromDisk,
   deleteStoredPage,
 } from './core/storage/pageStore';
-import { detectDocumentCorners } from './core/edgeDetection';
+import { getFullFrameQuad } from './core/edgeDetection';
 import { warpPerspective } from './core/geometry';
 
 export const App: React.FC = () => {
@@ -70,7 +70,7 @@ export const App: React.FC = () => {
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0);
 
-        const quad = detectedQuad ?? detectDocumentCorners(canvas);
+        const quad = detectedQuad ?? getFullFrameQuad(canvas.width, canvas.height, 0.005);
         const warpedCanvas = warpPerspective(canvas, quad);
         const filteredCanvas = await applyFilterAsync(warpedCanvas, 'magic');
 

@@ -14,12 +14,14 @@ import {
   RefreshCw,
   Settings,
   ArrowLeft,
+  Crop,
+  Maximize2,
 } from 'lucide-react';
 import { OtiumLogo } from './OtiumLogo';
 import { playShutterSound } from '../core/audio';
 import { mergeIdCardSidesToA4 } from '../core/idCard';
-import { calculateLaplacianSharpness, detectDocumentCorners } from '../core/edgeDetection';
-import { Point, Quad } from '../core/types';
+import { calculateLaplacianSharpness, detectDocumentCorners, getFullFrameQuad } from '../core/edgeDetection';
+import { Point, Quad, CropMode } from '../core/types';
 import { APP_CURRENT_VERSION } from '../core/updater';
 
 interface CameraViewProps {
@@ -51,8 +53,31 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const [capturing, setCapturing] = useState(false);
   const [flashAnimation, setFlashAnimation] = useState(false);
   const [autoCaptureEnabled, setAutoCaptureEnabled] = useState(false);
+  const [cropMode, setCropMode] = useState<CropMode>(() => {
+    try {
+      return (localStorage.getItem('otium_scan_crop_mode') as CropMode) || 'full';
+    } catch {
+      return 'full';
+    }
+  });
   const [captureToast, setCaptureToast] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleToggleCropMode = useCallback(() => {
+    setCropMode((prev) => {
+      const next: CropMode = prev === 'full' ? 'auto' : 'full';
+      try {
+        localStorage.setItem('otium_scan_crop_mode', next);
+      } catch {}
+      setCaptureToast(
+        next === 'full'
+          ? '🔲 تم تفعيل كامل الإطار: لا اقتطاع للنصوص نهائياً'
+          : '📐 تم تفعيل التحديد الذكي: كشف أطراف الورقة تلقائياً'
+      );
+      setTimeout(() => setCaptureToast(''), 2500);
+      return next;
+    });
+  }, []);
 
   // Live Real-Time Document Quad Tracker State
   const [liveScreenQuad, setLiveScreenQuad] = useState<{
@@ -217,14 +242,22 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
     const processCapturedImage = async (dataUrl: string, frameW?: number, frameH?: number) => {
       let detectedQuad: Quad | undefined = undefined;
-      const norm = liveNormalizedQuadRef.current;
-      if (norm && frameW && frameH && frameW > 0 && frameH > 0) {
-        detectedQuad = {
-          topLeft: { x: Math.round(norm.topLeft.x * frameW), y: Math.round(norm.topLeft.y * frameH) },
-          topRight: { x: Math.round(norm.topRight.x * frameW), y: Math.round(norm.topRight.y * frameH) },
-          bottomRight: { x: Math.round(norm.bottomRight.x * frameW), y: Math.round(norm.bottomRight.y * frameH) },
-          bottomLeft: { x: Math.round(norm.bottomLeft.x * frameW), y: Math.round(norm.bottomLeft.y * frameH) },
-        };
+      if (cropMode === 'full') {
+        if (frameW && frameH && frameW > 0 && frameH > 0) {
+          detectedQuad = getFullFrameQuad(frameW, frameH, 0.005);
+        }
+      } else {
+        const norm = liveNormalizedQuadRef.current;
+        if (norm && frameW && frameH && frameW > 0 && frameH > 0) {
+          detectedQuad = {
+            topLeft: { x: Math.round(norm.topLeft.x * frameW), y: Math.round(norm.topLeft.y * frameH) },
+            topRight: { x: Math.round(norm.topRight.x * frameW), y: Math.round(norm.topRight.y * frameH) },
+            bottomRight: { x: Math.round(norm.bottomRight.x * frameW), y: Math.round(norm.bottomRight.y * frameH) },
+            bottomLeft: { x: Math.round(norm.bottomLeft.x * frameW), y: Math.round(norm.bottomLeft.y * frameH) },
+          };
+        } else if (frameW && frameH && frameW > 0 && frameH > 0) {
+          detectedQuad = getFullFrameQuad(frameW, frameH, 0.005);
+        }
       }
 
       if (scanMode === 'idcard') {
@@ -426,11 +459,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
       fileInputRef.current?.click();
       setCapturing(false);
     }
-  }, [capturing, idCardStep, idFrontDataUrl, isMuted, onCapture, pagesCount, scanMode, stream]);
+  }, [capturing, cropMode, idCardStep, idFrontDataUrl, isMuted, onCapture, pagesCount, scanMode, stream]);
 
   // Real-Time Live Document Boundary Tracker (15-20 FPS, Lerp-smoothed)
   useEffect(() => {
-    if (hasPermission !== true || scanMode === 'idcard') {
+    if (hasPermission !== true || scanMode === 'idcard' || cropMode === 'full') {
       setLiveScreenQuad(null);
       liveNormalizedQuadRef.current = null;
       setIsQuadSteady(false);
@@ -559,7 +592,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [hasPermission, scanMode]);
+  }, [cropMode, hasPermission, scanMode]);
 
   // Enterprise Hands-Free Auto-Capture Engine
   useEffect(() => {
@@ -795,6 +828,38 @@ export const CameraView: React.FC<CameraViewProps> = ({
             {tiltAngle.isLevel ? 'مستوى مثالي' : 'اضبط الزاوية'}
           </span>
         </div>
+
+        {/* Crop Mode Switcher Badge (Full Frame vs Smart Crop) */}
+        {scanMode !== 'idcard' && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleToggleCropMode();
+            }}
+            className={`absolute top-4 right-4 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full backdrop-blur-md shadow-lg transition-all active:scale-95 font-arabic select-none ${
+              cropMode === 'full'
+                ? 'bg-emerald-950/85 text-emerald-300 border border-emerald-500/50 shadow-emerald-950/40 hover:bg-emerald-900/80'
+                : 'bg-black/80 text-amber-300 border border-amber-500/40 shadow-black/60 hover:bg-black/90'
+            }`}
+            title={
+              cropMode === 'full'
+                ? 'وضع كامل الإطار مفعل (يمنع اقتطاع النصوص نهائياً) — انقر للتبديل للتحديد الذكي'
+                : 'وضع التحديد الذكي مفعل — انقر للتبديل إلى كامل الإطار'
+            }
+          >
+            {cropMode === 'full' ? (
+              <>
+                <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-[11px] font-bold">كامل الإطار (آمن)</span>
+              </>
+            ) : (
+              <>
+                <Crop className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-[11px] font-bold">تحديد ذكي</span>
+              </>
+            )}
+          </button>
+        )}
 
         {/* Tap-to-Focus Animated Reticle */}
         {focusPoint && (

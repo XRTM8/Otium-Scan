@@ -12,6 +12,8 @@ export interface Quad {
 
 export type FilterType = 'magic' | 'vibrant' | 'bw' | 'grayscale' | 'vintage' | 'original';
 
+export type CropMode = 'full' | 'auto';
+
 export type DocumentCategory = 'all' | 'work' | 'personal' | 'bills' | 'ids' | 'study';
 
 export interface ScannedPage {

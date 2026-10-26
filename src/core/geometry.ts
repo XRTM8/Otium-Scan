@@ -72,6 +72,18 @@ export function isQuadConvex(quad: Quad): boolean {
   return sign !== 0;
 }
 
+export function getFullFrameQuad(width: number, height: number, marginPercent: number = 0.005): Quad {
+  const insetX = Math.round(width * Math.max(0, Math.min(0.05, marginPercent)));
+  const insetY = Math.round(height * Math.max(0, Math.min(0.05, marginPercent)));
+
+  return {
+    topLeft: { x: insetX, y: insetY },
+    topRight: { x: Math.max(insetX + 10, width - insetX), y: insetY },
+    bottomRight: { x: Math.max(insetX + 10, width - insetX), y: Math.max(insetY + 10, height - insetY) },
+    bottomLeft: { x: insetX, y: Math.max(insetY + 10, height - insetY) },
+  };
+}
+
 export function getDefaultQuad(width: number, height: number): Quad {
   const insetX = width * 0.08;
   const insetY = height * 0.08;

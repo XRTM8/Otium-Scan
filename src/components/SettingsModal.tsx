@@ -15,8 +15,11 @@ import {
   Camera,
   HardDrive,
   Smartphone,
+  Crop,
+  Maximize2,
 } from 'lucide-react';
 import { OtiumLogo } from './OtiumLogo';
+import { CropMode } from '../core/types';
 import {
   checkForAppUpdates,
   UpdateCheckResult,
@@ -54,6 +57,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isSettingPin, setIsSettingPin] = useState(false);
   const [newPin, setNewPin] = useState('');
   const [pinMsg, setPinMsg] = useState('');
+
+  // Crop mode preference
+  const [cropMode, setCropMode] = useState<CropMode>(() => {
+    try {
+      return (localStorage.getItem('otium_scan_crop_mode') as CropMode) || 'full';
+    } catch {
+      return 'full';
+    }
+  });
+
+  const handleToggleCropMode = () => {
+    triggerHaptic(15);
+    const next: CropMode = cropMode === 'full' ? 'auto' : 'full';
+    setCropMode(next);
+    try {
+      localStorage.setItem('otium_scan_crop_mode', next);
+    } catch {}
+  };
 
   if (!isOpen) return null;
 
@@ -277,6 +298,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <span>تفضيلات التصوير والماسح</span>
               <Camera className="w-4 h-4 text-emerald-400" />
             </h3>
+
+            {/* Crop Mode Selection */}
+            <div className="flex items-center justify-between py-1 border-b border-white/[0.05]">
+              <button
+                onClick={handleToggleCropMode}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 ${
+                  cropMode === 'full'
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                }`}
+              >
+                {cropMode === 'full' ? (
+                  <>
+                    <Maximize2 className="w-3.5 h-3.5" />
+                    <span>كامل الإطار</span>
+                  </>
+                ) : (
+                  <>
+                    <Crop className="w-3.5 h-3.5" />
+                    <span>تحديد ذكي</span>
+                  </>
+                )}
+              </button>
+              <div className="text-right">
+                <span className="text-xs font-semibold text-gray-200 block">وضع حدود المستند</span>
+                <span className="text-[10px] text-gray-400">
+                  {cropMode === 'full'
+                    ? 'كامل حدود الصورة (حماية 100% لكامل النصوص دون اقتطاع)'
+                    : 'كشف وقص أطراف الورقة تلقائياً'}
+                </span>
+              </div>
+            </div>
 
             {/* Sound Toggle */}
             <div className="flex items-center justify-between py-1 border-b border-white/[0.05]">
