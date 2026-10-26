@@ -97,8 +97,37 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
   });
   const [isEditingTitle, setIsEditingTitle] = useState(false);
 
+  // 120Hz Gestures & Touch State
+  const [zoomScale, setZoomScale] = useState<number>(1);
+  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [swipeTranslateX, setSwipeTranslateX] = useState<number>(0);
+  const [isSwiping, setIsSwiping] = useState<boolean>(false);
+
+  const lastTapTimeRef = useRef<number>(0);
+  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const touchDistanceStartRef = useRef<number | null>(null);
+  const initialZoomRef = useRef<number>(1);
+  const panStartRef = useRef<{ x: number; y: number } | null>(null);
+
   const safeIndex = Math.min(currentPageIndex, Math.max(0, pages.length - 1));
   const currentPage = pages[safeIndex];
+
+  // Auto-reset zoom and pan when changing page
+  useEffect(() => {
+    setZoomScale(1);
+    setPanOffset({ x: 0, y: 0 });
+    setSwipeTranslateX(0);
+    setIsSwiping(false);
+  }, [safeIndex]);
+
+  // Cleanup preview object URLs on change or unmount
+  useEffect(() => {
+    return () => {
+      if (fullResPreviewUrl && fullResPreviewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(fullResPreviewUrl);
+      }
+    };
+  }, [fullResPreviewUrl]);
 
   useEffect(() => {
     let active = true;
@@ -133,6 +162,108 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
         navigator.vibrate(duration);
       } catch {}
     }
+  };
+
+  const handleStageTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (isRedacting) return;
+
+    if (e.touches.length === 2) {
+      // Pinch-to-zoom start
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      touchDistanceStartRef.current = dist;
+      initialZoomRef.current = zoomScale;
+      return;
+    }
+
+    if (e.touches.length === 1) {
+      const now = Date.now();
+      const touch = e.touches[0];
+
+      // Double-tap to zoom toggle (1x <-> 2.5x)
+      if (now - lastTapTimeRef.current < 280) {
+        lastTapTimeRef.current = 0;
+        triggerHaptic(15);
+        if (zoomScale > 1.05) {
+          setZoomScale(1);
+          setPanOffset({ x: 0, y: 0 });
+        } else {
+          setZoomScale(2.5);
+        }
+        return;
+      }
+      lastTapTimeRef.current = now;
+
+      touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: now };
+      panStartRef.current = { ...panOffset };
+    }
+  };
+
+  const handleStageTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (isRedacting) return;
+
+    if (e.touches.length === 2 && touchDistanceStartRef.current !== null) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const scaleFactor = dist / touchDistanceStartRef.current;
+      const newScale = Math.min(4.0, Math.max(1.0, initialZoomRef.current * scaleFactor));
+      setZoomScale(newScale);
+      if (newScale === 1.0) {
+        setPanOffset({ x: 0, y: 0 });
+      }
+      return;
+    }
+
+    if (e.touches.length === 1 && touchStartRef.current) {
+      const touch = e.touches[0];
+      const dx = touch.clientX - touchStartRef.current.x;
+      const dy = touch.clientY - touchStartRef.current.y;
+
+      if (zoomScale > 1.05) {
+        // Pan image when zoomed in
+        if (panStartRef.current) {
+          const maxPanX = (zoomScale - 1) * 160;
+          const maxPanY = (zoomScale - 1) * 220;
+          const nextX = Math.min(maxPanX, Math.max(-maxPanX, panStartRef.current.x + dx));
+          const nextY = Math.min(maxPanY, Math.max(-maxPanY, panStartRef.current.y + dy));
+          setPanOffset({ x: nextX, y: nextY });
+        }
+      } else if (pages.length > 1) {
+        // Butter-smooth horizontal swipe between pages
+        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10) {
+          setIsSwiping(true);
+          const isAtBoundary = (safeIndex === 0 && dx > 0) || (safeIndex === pages.length - 1 && dx < 0);
+          setSwipeTranslateX(isAtBoundary ? dx * 0.3 : dx);
+        }
+      }
+    }
+  };
+
+  const handleStageTouchEnd = () => {
+    if (isRedacting) return;
+    touchDistanceStartRef.current = null;
+
+    if (isSwiping && touchStartRef.current) {
+      const dt = Date.now() - touchStartRef.current.time;
+      const velocity = Math.abs(swipeTranslateX) / Math.max(1, dt);
+
+      if (Math.abs(swipeTranslateX) > 60 || velocity > 0.4) {
+        if (swipeTranslateX < 0 && safeIndex < pages.length - 1) {
+          triggerHaptic(20);
+          setCurrentPageIndex(safeIndex + 1);
+        } else if (swipeTranslateX > 0 && safeIndex > 0) {
+          triggerHaptic(20);
+          setCurrentPageIndex(safeIndex - 1);
+        }
+      }
+      setSwipeTranslateX(0);
+      setIsSwiping(false);
+    }
+    touchStartRef.current = null;
   };
 
   const handleFilterSelect = async (newFilter: FilterType) => {
@@ -622,7 +753,12 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
           </div>
         </div>
       ) : (
-        <div className="relative flex-1 w-full h-full flex items-center justify-center p-4 overflow-hidden">
+        <div
+          onTouchStart={handleStageTouchStart}
+          onTouchMove={handleStageTouchMove}
+          onTouchEnd={handleStageTouchEnd}
+          className="relative flex-1 w-full h-full flex items-center justify-center p-4 overflow-hidden touch-none"
+        >
           {toastMsg && (
             <div className="absolute top-4 inset-x-0 flex justify-center z-40 pointer-events-none animate-in fade-in duration-200">
               <span className="px-4 py-1.5 rounded-full bg-emerald-500 text-black font-semibold text-xs shadow-2xl flex items-center gap-1.5 border border-white/20">
@@ -632,8 +768,25 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
             </div>
           )}
 
+          {/* Zoom Level Indicator & Reset Pill */}
+          {zoomScale > 1.05 && (
+            <div className="absolute top-2 inset-x-0 flex justify-center z-40 pointer-events-auto animate-in fade-in duration-150">
+              <button
+                onClick={() => {
+                  triggerHaptic(10);
+                  setZoomScale(1);
+                  setPanOffset({ x: 0, y: 0 });
+                }}
+                className="px-3.5 py-1 rounded-full bg-black/85 backdrop-blur-md border border-emerald-500/50 text-emerald-400 text-xs font-bold shadow-2xl flex items-center gap-1.5 active:scale-95 transition-transform"
+              >
+                <span>{Math.round(zoomScale * 100)}%</span>
+                <span className="text-[10px] text-gray-300 font-arabic font-normal">• انقر للعودة إلى 1x</span>
+              </button>
+            </div>
+          )}
+
           {/* Smart Barcode / QR Code Intelligence Badge */}
-          {detectedBarcodes.length > 0 && (
+          {detectedBarcodes.length > 0 && zoomScale <= 1.05 && (
             <div className="absolute top-2 inset-x-6 z-30 flex items-center justify-between px-3.5 py-2 rounded-2xl bg-black/85 backdrop-blur-xl border border-emerald-500/40 shadow-2xl animate-in fade-in slide-in-from-top-2">
               <div className="flex items-center gap-2 overflow-hidden">
                 <QrCode className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -674,7 +827,13 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
             </div>
           )}
 
-          <div className="relative max-w-full max-h-[54vh] rounded-xl overflow-hidden shadow-2xl border border-white/10 select-none">
+          <div
+            style={{
+              transform: `translateX(${swipeTranslateX}px) translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoomScale})`,
+              transition: isSwiping || zoomScale > 1.05 ? 'none' : 'transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
+            }}
+            className="relative max-w-full max-h-[54vh] rounded-xl overflow-hidden shadow-2xl border border-white/10 select-none will-change-transform"
+          >
             <img
               ref={previewImageRef}
               src={previewSource}

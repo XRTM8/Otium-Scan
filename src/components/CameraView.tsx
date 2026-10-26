@@ -13,10 +13,11 @@ import {
 import { OtiumLogo } from './OtiumLogo';
 import { playShutterSound } from '../core/audio';
 import { mergeIdCardSidesToA4 } from '../core/idCard';
-import { calculateLaplacianSharpness } from '../core/edgeDetection';
+import { calculateLaplacianSharpness, detectDocumentCorners } from '../core/edgeDetection';
+import { Point, Quad } from '../core/types';
 
 interface CameraViewProps {
-  onCapture: (imageDataUrl: string, isBatchMode: boolean) => void;
+  onCapture: (imageDataUrl: string, isBatchMode: boolean, detectedQuad?: Quad) => void;
   pagesCount: number;
   lastThumbnail?: string;
   onFinishBatch: () => void;
@@ -31,6 +32,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
   onOpenLibrary,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const viewfinderRef = useRef<HTMLDivElement | null>(null);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [torchOn, setTorchOn] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -43,6 +45,17 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const [autoCaptureEnabled, setAutoCaptureEnabled] = useState(false);
   const [captureToast, setCaptureToast] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Live Real-Time Document Quad Tracker State
+  const [liveScreenQuad, setLiveScreenQuad] = useState<{
+    topLeft: Point;
+    topRight: Point;
+    bottomRight: Point;
+    bottomLeft: Point;
+  } | null>(null);
+  const [isQuadSteady, setIsQuadSteady] = useState(false);
+  const liveNormalizedQuadRef = useRef<Quad | null>(null);
+  const trackerCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const initCamera = useCallback(async () => {
     // Ultra-compatible camera constraints for Android WebView
@@ -147,7 +160,18 @@ export const CameraView: React.FC<CameraViewProps> = ({
     setFlashAnimation(true);
     setTimeout(() => setFlashAnimation(false), 120);
 
-    const processCapturedImage = async (dataUrl: string) => {
+    const processCapturedImage = async (dataUrl: string, frameW?: number, frameH?: number) => {
+      let detectedQuad: Quad | undefined = undefined;
+      const norm = liveNormalizedQuadRef.current;
+      if (norm && frameW && frameH && frameW > 0 && frameH > 0) {
+        detectedQuad = {
+          topLeft: { x: Math.round(norm.topLeft.x * frameW), y: Math.round(norm.topLeft.y * frameH) },
+          topRight: { x: Math.round(norm.topRight.x * frameW), y: Math.round(norm.topRight.y * frameH) },
+          bottomRight: { x: Math.round(norm.bottomRight.x * frameW), y: Math.round(norm.bottomRight.y * frameH) },
+          bottomLeft: { x: Math.round(norm.bottomLeft.x * frameW), y: Math.round(norm.bottomLeft.y * frameH) },
+        };
+      }
+
       if (scanMode === 'idcard') {
         if (idCardStep === 'front') {
           setIdFrontDataUrl(dataUrl);
@@ -204,7 +228,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
       const isBatch = scanMode === 'batch';
       setCaptureToast(isBatch ? `✓ تمت إضافة صفحة ${pagesCount + 1}` : '✓ تم حفظ الصورة');
       setTimeout(() => setCaptureToast(''), 1800);
-      onCapture(dataUrl, isBatch);
+      onCapture(dataUrl, isBatch, detectedQuad);
     };
 
     const checkCanvasNonBlack = (ctx: CanvasRenderingContext2D, w: number, h: number): boolean => {
@@ -230,7 +254,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
       }
     };
 
-    const tryGrabFrame = async (): Promise<string | null> => {
+    const tryGrabFrame = async (): Promise<{ dataUrl: string; width: number; height: number } | null> => {
       if (!stream) return null;
       const track = stream.getVideoTracks()[0];
       if (!track || track.readyState !== 'live') return null;
@@ -251,7 +275,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
                 ctx.drawImage(bitmap, 0, 0);
                 if (checkCanvasNonBlack(ctx, canvas.width, canvas.height)) {
-                  return canvas.toDataURL('image/jpeg', 0.95);
+                  return {
+                    dataUrl: canvas.toDataURL('image/jpeg', 0.95),
+                    width: canvas.width,
+                    height: canvas.height,
+                  };
                 }
               }
             }
@@ -263,7 +291,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
       return null;
     };
 
-    const tryTakePhoto = async (): Promise<string | null> => {
+    const tryTakePhoto = async (): Promise<{ dataUrl: string; width: number; height: number } | null> => {
       if (!stream) return null;
       const track = stream.getVideoTracks()[0];
       if (!track || track.readyState !== 'live') return null;
@@ -275,12 +303,19 @@ export const CameraView: React.FC<CameraViewProps> = ({
           if (typeof capturer.takePhoto === 'function') {
             const blob: Blob = await capturer.takePhoto();
             if (blob && blob.size > 2000) {
-              return await new Promise<string>((res, rej) => {
+              const dataUrl = await new Promise<string>((res, rej) => {
                 const reader = new FileReader();
                 reader.onload = () => res(reader.result as string);
                 reader.onerror = rej;
                 reader.readAsDataURL(blob);
               });
+              const img = await new Promise<HTMLImageElement>((res, rej) => {
+                const i = new Image();
+                i.onload = () => res(i);
+                i.onerror = rej;
+                i.src = dataUrl;
+              });
+              return { dataUrl, width: img.naturalWidth, height: img.naturalHeight };
             }
           }
         } catch (e) {
@@ -290,7 +325,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
       return null;
     };
 
-    const tryVideoCanvas = async (): Promise<string | null> => {
+    const tryVideoCanvas = async (): Promise<{ dataUrl: string; width: number; height: number } | null> => {
       const video = videoRef.current;
       if (!video || video.videoWidth === 0 || video.videoHeight === 0) return null;
 
@@ -311,20 +346,24 @@ export const CameraView: React.FC<CameraViewProps> = ({
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       }
 
-      return canvas.toDataURL('image/jpeg', 0.95);
+      return {
+        dataUrl: canvas.toDataURL('image/jpeg', 0.95),
+        width: canvas.width,
+        height: canvas.height,
+      };
     };
 
     try {
-      let dataUrl = await tryGrabFrame();
-      if (!dataUrl) {
-        dataUrl = await tryTakePhoto();
+      let captureResult = await tryGrabFrame();
+      if (!captureResult) {
+        captureResult = await tryTakePhoto();
       }
-      if (!dataUrl) {
-        dataUrl = await tryVideoCanvas();
+      if (!captureResult) {
+        captureResult = await tryVideoCanvas();
       }
 
-      if (dataUrl) {
-        await processCapturedImage(dataUrl);
+      if (captureResult) {
+        await processCapturedImage(captureResult.dataUrl, captureResult.width, captureResult.height);
       } else {
         fileInputRef.current?.click();
         setCapturing(false);
@@ -335,6 +374,139 @@ export const CameraView: React.FC<CameraViewProps> = ({
       setCapturing(false);
     }
   }, [capturing, idCardStep, idFrontDataUrl, onCapture, pagesCount, scanMode, stream]);
+
+  // Real-Time Live Document Boundary Tracker (15-20 FPS, Lerp-smoothed)
+  useEffect(() => {
+    if (hasPermission !== true || scanMode === 'idcard') {
+      setLiveScreenQuad(null);
+      liveNormalizedQuadRef.current = null;
+      setIsQuadSteady(false);
+      return;
+    }
+
+    let animationFrameId: number;
+    let lastSampleTime = 0;
+    let steadyFramesCount = 0;
+    let lastCornerPos: Point | null = null;
+
+    const sampleIntervalMs = 60; // Smooth 16 FPS with negligible CPU impact
+
+    const trackLoop = (timestamp: number) => {
+      animationFrameId = requestAnimationFrame(trackLoop);
+
+      if (timestamp - lastSampleTime < sampleIntervalMs) return;
+      lastSampleTime = timestamp;
+
+      const video = videoRef.current;
+      const container = viewfinderRef.current;
+      if (!video || !container || video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
+        return;
+      }
+
+      const vWidth = video.videoWidth;
+      const vHeight = video.videoHeight;
+      const cWidth = container.clientWidth;
+      const cHeight = container.clientHeight;
+      if (cWidth === 0 || cHeight === 0) return;
+
+      if (!trackerCanvasRef.current) {
+        trackerCanvasRef.current = document.createElement('canvas');
+      }
+      const canvas = trackerCanvasRef.current;
+      const sampleW = 160;
+      const sampleH = Math.round(160 * (vHeight / vWidth));
+      if (canvas.width !== sampleW || canvas.height !== sampleH) {
+        canvas.width = sampleW;
+        canvas.height = sampleH;
+      }
+
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return;
+
+      ctx.drawImage(video, 0, 0, sampleW, sampleH);
+
+      const detected = detectDocumentCorners(canvas);
+
+      const normQuad: Quad = {
+        topLeft: { x: detected.topLeft.x / sampleW, y: detected.topLeft.y / sampleH },
+        topRight: { x: detected.topRight.x / sampleW, y: detected.topRight.y / sampleH },
+        bottomRight: { x: detected.bottomRight.x / sampleW, y: detected.bottomRight.y / sampleH },
+        bottomLeft: { x: detected.bottomLeft.x / sampleW, y: detected.bottomLeft.y / sampleH },
+      };
+
+      const isTrivialFullFrame =
+        normQuad.topLeft.x < 0.04 && normQuad.topLeft.y < 0.04 &&
+        normQuad.bottomRight.x > 0.96 && normQuad.bottomRight.y > 0.96;
+
+      if (isTrivialFullFrame) {
+        setLiveScreenQuad(null);
+        liveNormalizedQuadRef.current = null;
+        setIsQuadSteady(false);
+        steadyFramesCount = 0;
+        return;
+      }
+
+      // Lerp smoothing (EMA alpha = 0.35)
+      if (!liveNormalizedQuadRef.current) {
+        liveNormalizedQuadRef.current = {
+          topLeft: { ...normQuad.topLeft },
+          topRight: { ...normQuad.topRight },
+          bottomRight: { ...normQuad.bottomRight },
+          bottomLeft: { ...normQuad.bottomLeft },
+        };
+      } else {
+        const cur = liveNormalizedQuadRef.current;
+        const alpha = 0.35;
+        cur.topLeft.x += (normQuad.topLeft.x - cur.topLeft.x) * alpha;
+        cur.topLeft.y += (normQuad.topLeft.y - cur.topLeft.y) * alpha;
+        cur.topRight.x += (normQuad.topRight.x - cur.topRight.x) * alpha;
+        cur.topRight.y += (normQuad.topRight.y - cur.topRight.y) * alpha;
+        cur.bottomRight.x += (normQuad.bottomRight.x - cur.bottomRight.x) * alpha;
+        cur.bottomRight.y += (normQuad.bottomRight.y - cur.bottomRight.y) * alpha;
+        cur.bottomLeft.x += (normQuad.bottomLeft.x - cur.bottomLeft.x) * alpha;
+        cur.bottomLeft.y += (normQuad.bottomLeft.y - cur.bottomLeft.y) * alpha;
+      }
+
+      const cur = liveNormalizedQuadRef.current;
+
+      // Steady movement tracking
+      if (lastCornerPos) {
+        const delta = Math.hypot(cur.topLeft.x - lastCornerPos.x, cur.topLeft.y - lastCornerPos.y);
+        if (delta < 0.015) {
+          steadyFramesCount++;
+        } else {
+          steadyFramesCount = Math.max(0, steadyFramesCount - 1);
+        }
+      }
+      lastCornerPos = { x: cur.topLeft.x, y: cur.topLeft.y };
+      const steady = steadyFramesCount >= 5;
+      setIsQuadSteady(steady);
+
+      // Map to container coordinates with object-cover
+      const scale = Math.max(cWidth / vWidth, cHeight / vHeight);
+      const renderedW = vWidth * scale;
+      const renderedH = vHeight * scale;
+      const offsetX = (cWidth - renderedW) / 2;
+      const offsetY = (cHeight - renderedH) / 2;
+
+      const mapPt = (p: Point) => ({
+        x: Math.round(offsetX + p.x * renderedW),
+        y: Math.round(offsetY + p.y * renderedH),
+      });
+
+      setLiveScreenQuad({
+        topLeft: mapPt(cur.topLeft),
+        topRight: mapPt(cur.topRight),
+        bottomRight: mapPt(cur.bottomRight),
+        bottomLeft: mapPt(cur.bottomLeft),
+      });
+    };
+
+    animationFrameId = requestAnimationFrame(trackLoop);
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, [hasPermission, scanMode]);
 
   // Enterprise Hands-Free Auto-Capture Engine
   useEffect(() => {
@@ -361,8 +533,9 @@ export const CameraView: React.FC<CameraViewProps> = ({
           ctx.drawImage(video, 0, 0, testCanvas.width, testCanvas.height);
           const currentSharpness = calculateLaplacianSharpness(testCanvas);
 
-          // Focus check: sharp image with minimal motion blur
-          if (currentSharpness > 45 && Math.abs(currentSharpness - lastSharpness) < 25) {
+          // Focus check with steady quad confirmation
+          const isSharp = currentSharpness > 42 && Math.abs(currentSharpness - lastSharpness) < 25;
+          if (isSharp && (isQuadSteady || liveNormalizedQuadRef.current !== null)) {
             steadyCount++;
             if (steadyCount >= 2) {
               steadyCount = 0;
@@ -380,10 +553,10 @@ export const CameraView: React.FC<CameraViewProps> = ({
       } finally {
         isChecking = false;
       }
-    }, 450);
+    }, 400);
 
     return () => clearInterval(intervalId);
-  }, [autoCaptureEnabled, hasPermission, capturing, handleCapture]);
+  }, [autoCaptureEnabled, hasPermission, capturing, isQuadSteady, handleCapture]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -500,7 +673,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
       </div>
 
       {/* Main Viewfinder Screen */}
-      <div className="relative flex-1 w-full h-full flex items-center justify-center overflow-hidden">
+      <div ref={viewfinderRef} className="relative flex-1 w-full h-full flex items-center justify-center overflow-hidden">
         <video
           ref={videoRef}
           autoPlay
@@ -512,6 +685,38 @@ export const CameraView: React.FC<CameraViewProps> = ({
           }}
           className="absolute inset-0 w-full h-full object-cover"
         />
+
+        {/* Real-Time Live Document Boundary Overlay */}
+        {liveScreenQuad && scanMode !== 'idcard' && (
+          <svg className="absolute inset-0 w-full h-full pointer-events-none z-10 transition-opacity duration-200">
+            {/* Translucent Glowing Polygon */}
+            <polygon
+              points={`${liveScreenQuad.topLeft.x},${liveScreenQuad.topLeft.y} ${liveScreenQuad.topRight.x},${liveScreenQuad.topRight.y} ${liveScreenQuad.bottomRight.x},${liveScreenQuad.bottomRight.y} ${liveScreenQuad.bottomLeft.x},${liveScreenQuad.bottomLeft.y}`}
+              fill={isQuadSteady ? 'rgba(16, 185, 129, 0.20)' : 'rgba(16, 185, 129, 0.10)'}
+              stroke={isQuadSteady ? '#34D399' : '#10B981'}
+              strokeWidth={isQuadSteady ? '2.5' : '1.8'}
+              strokeDasharray={isQuadSteady ? 'none' : '6 4'}
+              className="transition-all duration-150"
+            />
+
+            {/* Dynamic Reticle Brackets at 4 Corners */}
+            {[
+              { p: liveScreenQuad.topLeft, dx: 1, dy: 1 },
+              { p: liveScreenQuad.topRight, dx: -1, dy: 1 },
+              { p: liveScreenQuad.bottomRight, dx: -1, dy: -1 },
+              { p: liveScreenQuad.bottomLeft, dx: 1, dy: -1 },
+            ].map(({ p, dx, dy }, idx) => (
+              <path
+                key={idx}
+                d={`M ${p.x + dx * 18} ${p.y} L ${p.x} ${p.y} L ${p.x} ${p.y + dy * 18}`}
+                fill="none"
+                stroke={isQuadSteady ? '#34D399' : '#10B981'}
+                strokeWidth="3.5"
+                strokeLinecap="round"
+              />
+            ))}
+          </svg>
+        )}
 
         {/* Fallback state when permission is pending or denied */}
         {hasPermission === false && (
@@ -557,6 +762,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
                 <span className="text-emerald-400 font-bold flex items-center gap-1.5">
                   <CreditCard className="w-3.5 h-3.5" />
                   <span>{idCardStep === 'front' ? 'ضع الوجه الأمامي للهوية داخل الإطار' : 'ضع الوجه الخلفي للهوية'}</span>
+                </span>
+              ) : isQuadSteady ? (
+                <span className="text-emerald-300 font-bold flex items-center gap-1.5 animate-pulse">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>تم تثبيت المستند بنجاح</span>
                 </span>
               ) : pagesCount > 0 ? (
                 <span className="text-emerald-300 font-semibold flex items-center gap-1.5">

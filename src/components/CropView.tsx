@@ -6,6 +6,7 @@ import { Check, RotateCcw, X, Wand2, RotateCw, Maximize2 } from 'lucide-react';
 
 interface CropViewProps {
   imageSrc: string;
+  initialQuad?: Quad;
   onConfirm: (warpedCanvas: HTMLCanvasElement, quad: Quad) => void;
   onCancel: () => void;
 }
@@ -13,7 +14,7 @@ interface CropViewProps {
 type CornerKey = 'topLeft' | 'topRight' | 'bottomRight' | 'bottomLeft';
 type EdgeKey = 'top' | 'right' | 'bottom' | 'left';
 
-export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCancel }) => {
+export const CropView: React.FC<CropViewProps> = ({ imageSrc, initialQuad, onConfirm, onCancel }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const [currentSrc, setCurrentSrc] = useState<string>(imageSrc);
@@ -38,14 +39,18 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
     const { naturalWidth, naturalHeight } = imageRef.current;
     setImageSize({ width: naturalWidth, height: naturalHeight });
 
-    // Run auto corner detection on first image load
+    // Use passed initialQuad or run auto corner detection on first load
     if (!hasInitializedRef.current) {
       hasInitializedRef.current = true;
-      try {
-        const detected = detectDocumentCorners(imageRef.current);
-        setQuad(detected);
-      } catch {
-        setQuad(getDefaultQuad(naturalWidth, naturalHeight));
+      if (initialQuad && isQuadConvex(initialQuad)) {
+        setQuad(initialQuad);
+      } else {
+        try {
+          const detected = detectDocumentCorners(imageRef.current);
+          setQuad(detected);
+        } catch {
+          setQuad(getDefaultQuad(naturalWidth, naturalHeight));
+        }
       }
     }
   };

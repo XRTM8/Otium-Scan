@@ -18,6 +18,7 @@ import { warpPerspective } from './core/geometry';
 export const App: React.FC = () => {
   const [step, setStep] = useState<ScanStep>('camera');
   const [currentRawImage, setCurrentRawImage] = useState<string>('');
+  const [currentInitialQuad, setCurrentInitialQuad] = useState<Quad | null>(null);
   const [pages, setPages] = useState<ScannedPage[]>([]);
   const [retakeTargetIndex, setRetakeTargetIndex] = useState<number | null>(null);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
@@ -29,6 +30,7 @@ export const App: React.FC = () => {
       if (step === 'crop') {
         setStep(pages.length > 0 ? 'review' : 'camera');
         setCurrentRawImage('');
+        setCurrentInitialQuad(null);
         setRetakeTargetIndex(null);
         window.history.pushState(null, '', window.location.href);
       } else if (step === 'review') {
@@ -44,10 +46,11 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [step, pages.length]);
 
-  const handleCapture = (imageSrc: string, isBatchMode: boolean) => {
+  const handleCapture = (imageSrc: string, isBatchMode: boolean, detectedQuad?: Quad) => {
     // If retaking or in single mode, immediately open CropView
     if (retakeTargetIndex !== null || !isBatchMode) {
       setCurrentRawImage(imageSrc);
+      setCurrentInitialQuad(detectedQuad ?? null);
       setStep('crop');
       return;
     }
@@ -65,7 +68,7 @@ export const App: React.FC = () => {
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0);
 
-        const quad = detectDocumentCorners(canvas);
+        const quad = detectedQuad ?? detectDocumentCorners(canvas);
         const warpedCanvas = warpPerspective(canvas, quad);
         const filteredCanvas = await applyFilterAsync(warpedCanvas, 'magic');
 
@@ -135,6 +138,7 @@ export const App: React.FC = () => {
       console.warn('Crop confirm error:', err);
     } finally {
       setCurrentRawImage('');
+      setCurrentInitialQuad(null);
       // Single mode or recrop always goes directly to review to see the document!
       setStep('review');
     }
@@ -146,6 +150,7 @@ export const App: React.FC = () => {
     try {
       const originalDataUrl = await loadOriginalDataUrlFromDisk(page.id);
       setCurrentRawImage(originalDataUrl);
+      setCurrentInitialQuad(page.quad);
       setRetakeTargetIndex(index);
       setStep('crop');
     } catch (e) {
@@ -155,6 +160,7 @@ export const App: React.FC = () => {
 
   const handleCropCancel = () => {
     setCurrentRawImage('');
+    setCurrentInitialQuad(null);
     setRetakeTargetIndex(null);
     setStep(pages.length > 0 ? 'review' : 'camera');
   };
@@ -233,6 +239,7 @@ export const App: React.FC = () => {
       {step === 'crop' && (
         <CropView
           imageSrc={currentRawImage}
+          initialQuad={currentInitialQuad ?? undefined}
           onConfirm={handleCropConfirm}
           onCancel={handleCropCancel}
         />
