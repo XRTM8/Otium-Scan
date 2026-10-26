@@ -2,8 +2,12 @@ package com.otium.scan
 
 import android.Manifest
 import android.app.Activity
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
 import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
@@ -370,6 +374,77 @@ class MainActivity : TauriActivity() {
         stream.bufferedReader().use { it.readText() }
       } catch (e: Exception) {
         "ERROR:" + (e.message ?: "Network error")
+      }
+    }
+
+    /**
+     * Downloads an APK file directly using Android DownloadManager and launches package installer
+     */
+    @JavascriptInterface
+    fun downloadAndInstallApk(apkUrl: String, filename: String) {
+      runOnUiThread {
+        try {
+          val cleanFilename = if (filename.endsWith(".apk")) filename else "$filename.apk"
+          val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+          val request = DownloadManager.Request(Uri.parse(apkUrl)).apply {
+            setTitle("تحديث Otium Scan")
+            setDescription("جاري تنزيل $cleanFilename وتجهيز التثبيت...")
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, cleanFilename)
+            setMimeType("application/vnd.android.package-archive")
+          }
+
+          Toast.makeText(this@MainActivity, "جاري تنزيل التحديث في الخلفية...", Toast.LENGTH_LONG).show()
+          val downloadId = dm.enqueue(request)
+
+          // Register BroadcastReceiver for download completion
+          val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+              val id = intent?.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L) ?: -1L
+              if (id == downloadId) {
+                try {
+                  unregisterReceiver(this)
+                } catch (_: Exception) {}
+
+                val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), cleanFilename)
+                if (file.exists()) {
+                  val contentUri = FileProvider.getUriForFile(
+                    this@MainActivity,
+                    "${applicationContext.packageName}.fileprovider",
+                    file
+                  )
+                  val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(contentUri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                  }
+                  try {
+                    startActivity(installIntent)
+                  } catch (_: Exception) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+                      val permIntent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                        data = Uri.parse("package:${applicationContext.packageName}")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                      }
+                      startActivity(permIntent)
+                      Toast.makeText(this@MainActivity, "يرجى تفعيل خيار التثبيت من هذا المصدر لإتمام التحديث", Toast.LENGTH_LONG).show()
+                    } else {
+                      Toast.makeText(this@MainActivity, "يرجى فتح مجلد التنزيلات لتثبيت $cleanFilename", Toast.LENGTH_LONG).show()
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED)
+          } else {
+            registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
+          }
+        } catch (e: Exception) {
+          openExternalUrl(apkUrl)
+        }
       }
     }
 

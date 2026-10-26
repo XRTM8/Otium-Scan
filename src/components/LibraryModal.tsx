@@ -7,7 +7,7 @@ import {
   restoreVaultBackup,
 } from '../core/storage/documentLibrary';
 import { DocumentCategory } from '../core/types';
-import { nativeSharePdf, nativeSavePdf, nativeOpenInOtium, nativeOpenUrl } from '../core/nativeBridge';
+import { nativeSharePdf, nativeSavePdf, nativeOpenInOtium, nativeOpenUrl, nativeInstallApk } from '../core/nativeBridge';
 import { hasVaultPin, verifyVaultPin, setVaultPin, clearVaultPin } from '../core/security';
 import {
   checkForAppUpdates,
@@ -739,12 +739,17 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onO
 
                     {updateResult.matchedAsset ? (
                       <button
-                        onClick={() => nativeOpenUrl(updateResult.matchedAsset!.downloadUrl)}
-                        className="w-full py-2.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95 transition-all"
+                        onClick={() => {
+                          nativeInstallApk(
+                            updateResult.matchedAsset!.downloadUrl,
+                            updateResult.matchedAsset!.name
+                          );
+                        }}
+                        className="w-full py-2.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95 transition-all font-arabic"
                       >
                         <Download className="w-3.5 h-3.5" />
                         <span>
-                          تحميل التحديث ({updateResult.matchedAsset.name.includes('arm64') ? 'arm64' : 'APK'} • {(updateResult.matchedAsset.size / (1024 * 1024)).toFixed(1)} MB)
+                          تنزيل وتثبيت التحديث مباشرة ({updateResult.matchedAsset.name.includes('arm64') ? 'arm64' : 'APK'} • {(updateResult.matchedAsset.size / (1024 * 1024)).toFixed(1)} MB)
                         </span>
                       </button>
                     ) : (

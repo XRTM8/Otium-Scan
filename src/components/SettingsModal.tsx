@@ -26,7 +26,7 @@ import {
   APP_CURRENT_VERSION,
   detectDeviceArchitecture,
 } from '../core/updater';
-import { nativeOpenUrl } from '../core/nativeBridge';
+import { nativeOpenUrl, nativeInstallApk } from '../core/nativeBridge';
 import { hasVaultPin, clearVaultPin, setVaultPin } from '../core/security';
 
 interface SettingsModalProps {
@@ -237,13 +237,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <button
                     onClick={() => {
                       triggerHaptic(20);
-                      nativeOpenUrl(updateResult.matchedAsset!.downloadUrl);
+                      nativeInstallApk(
+                        updateResult.matchedAsset!.downloadUrl,
+                        updateResult.matchedAsset!.name
+                      );
                     }}
-                    className="w-full py-3 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-black font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/30 transition-all"
+                    className="w-full py-3 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-black font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/30 transition-all font-arabic"
                   >
                     <Download className="w-4 h-4" />
                     <span>
-                      تحميل التحديث مباشرة (APK • {(updateResult.matchedAsset.size / (1024 * 1024)).toFixed(1)} MB)
+                      تنزيل وتثبيت التحديث مباشرة (APK • {(updateResult.matchedAsset.size / (1024 * 1024)).toFixed(1)} MB)
                     </span>
                   </button>
                 ) : (

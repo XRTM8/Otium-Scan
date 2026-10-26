@@ -14,6 +14,7 @@ declare global {
       saveFileToDownloads?: (base64Data: string, filename: string, mimeType: string) => boolean;
       openInOtiumReader?: (base64Data: string, filename: string) => void;
       openExternalUrl?: (url: string) => void;
+      downloadAndInstallApk?: (apkUrl: string, filename: string) => void;
       fetchUrl?: (url: string) => string;
     };
   }
@@ -155,6 +156,21 @@ export async function nativeOpenInOtium(blob: Blob, filename: string): Promise<v
 
   // Fallback to sharing
   await nativeSharePdf(blob, cleanFilename, 'فتح بواسطة');
+}
+
+/**
+ * Downloads and installs APK directly via native Android DownloadManager & PackageInstaller
+ */
+export function nativeInstallApk(apkUrl: string, filename: string): void {
+  if (typeof window !== 'undefined' && window.OtiumNative && (window.OtiumNative as any).downloadAndInstallApk) {
+    try {
+      (window.OtiumNative as any).downloadAndInstallApk(apkUrl, filename);
+      return;
+    } catch (e) {
+      console.warn('Native downloadAndInstallApk failed, falling back to browser:', e);
+    }
+  }
+  nativeOpenUrl(apkUrl);
 }
 
 /**

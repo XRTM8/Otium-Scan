@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Otium Scan",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "identifier": "com.otium.scan",
   "build": {
     "frontendDist": "../dist",
@@ -24,7 +24,7 @@
     "security": {
       "csp": {
         "default-src": "'self' https://tauri.localhost",
-        "connect-src": "'self' ipc: http://ipc.localhost https://ipc.localhost https://tauri.localhost https://api.github.com https://github.com https://objects.githubusercontent.com https://raw.githubusercontent.com",
+        "connect-src": "'self' ipc: http://ipc.localhost https://ipc.localhost https://tauri.localhost https://api.github.com https://github.com https://objects.githubusercontent.com https://raw.githubusercontent.com https://release-assets.githubusercontent.com",
         "font-src": "'self' data: https://tauri.localhost",
         "img-src": "'self' data: blob: https://tauri.localhost https://github.com https://avatars.githubusercontent.com",
         "media-src": "'self' blob: data: mediastream: https://tauri.localhost",

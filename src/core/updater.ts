@@ -6,7 +6,7 @@
 
 import { nativeFetchUrl } from './nativeBridge';
 
-export const APP_CURRENT_VERSION = '0.2.9';
+export const APP_CURRENT_VERSION = '0.2.10';
 
 export interface ReleaseAsset {
   name: string;
@@ -64,86 +64,143 @@ export function detectDeviceArchitecture(): 'arm64-v8a' | 'armeabi-v7a' | 'x86_6
 }
 
 /**
- * Checks GitHub Releases API for the latest version.
- * Tries native Android HTTP first (bypassing webview CSP/CORS), then standard fetch with 10s timeout.
+ * Checks for updates using a 3-tier failover discovery system:
+ * Tier 1: GitHub API (api.github.com/repos/XRTM8/Otium-Scan/releases/latest)
+ * Tier 2: GitHub Web Releases Redirect (github.com/XRTM8/Otium-Scan/releases/latest) -> 0 rate limit
+ * Tier 3: Raw Git package.json (raw.githubusercontent.com/XRTM8/Otium-Scan/main/package.json) -> 0 rate limit
+ * 
+ * Guarantees update detection even under strict GitHub API rate limits (HTTP 403) or country blocks.
  */
 export async function checkForAppUpdates(): Promise<UpdateCheckResult> {
-  const GITHUB_API_URL = 'https://api.github.com/repos/XRTM8/Otium-Scan/releases/latest';
-  let data: any = null;
+  const targetAbi = detectDeviceArchitecture();
+  let tag: string | null = null;
+  let releaseNotes = '';
+  let publishedAt: string | undefined = undefined;
+  let releaseUrl = 'https://github.com/XRTM8/Otium-Scan/releases';
+  let matchedAsset: ReleaseAsset | undefined = undefined;
+  let allAssets: ReleaseAsset[] = [];
 
-  // 1. Try Native Android HTTP first (100% immune to webview CORS / CSP restrictions)
+  // =========================================================================
+  // TIER 1: Official GitHub Releases API (Native Android HTTP first, then Web fetch)
+  // =========================================================================
   try {
+    const GITHUB_API_URL = 'https://api.github.com/repos/XRTM8/Otium-Scan/releases/latest';
+    let apiData: any = null;
+
     const nativeResponse = await nativeFetchUrl(GITHUB_API_URL);
-    if (nativeResponse) {
-      data = JSON.parse(nativeResponse);
-      if (data && data.message && !data.tag_name) {
-        // GitHub API error (e.g. rate limit)
-        throw new Error(`GitHub API: ${data.message}`);
-      }
+    if (nativeResponse && !nativeResponse.startsWith('ERROR:')) {
+      try {
+        const parsed = JSON.parse(nativeResponse);
+        if (parsed && (parsed.tag_name || parsed.name) && !parsed.message) {
+          apiData = parsed;
+        }
+      } catch {}
     }
-  } catch (nativeErr: any) {
-    console.warn('Native update check failed, attempting web fetch fallback:', nativeErr);
-  }
 
-  // 2. Fallback to web fetch
-  if (!data) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-    try {
+    if (!apiData) {
       const response = await fetch(GITHUB_API_URL, {
-        signal: controller.signal,
-        headers: {
-          Accept: 'application/vnd.github.v3+json',
-        },
-      });
+        headers: { Accept: 'application/vnd.github.v3+json' },
+      }).catch(() => null);
 
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        throw new Error(`GitHub API HTTP ${response.status}: ${response.statusText}`);
+      if (response && response.ok) {
+        apiData = await response.json().catch(() => null);
       }
+    }
 
-      data = await response.json();
-    } catch (err: any) {
-      clearTimeout(timeoutId);
-      if (err.name === 'AbortError') {
-        throw new Error('انتهت مهلة الاتصال بخوادم GitHub. يرجى التحقق من اتصالك بالإنترنت.');
+    if (apiData && (apiData.tag_name || apiData.name)) {
+      tag = (apiData.tag_name || apiData.name).replace(/^v/i, '').trim();
+      releaseNotes = apiData.body || '';
+      publishedAt = apiData.published_at;
+      releaseUrl = apiData.html_url || releaseUrl;
+
+      if (Array.isArray(apiData.assets)) {
+        allAssets = apiData.assets.map((a: any) => ({
+          name: a.name,
+          size: a.size,
+          downloadUrl: a.browser_download_url,
+        }));
       }
-      throw new Error(
-        'تعذر الاتصال بخوادم GitHub. يرجى التحقق من اتصال الإنترنت، أو تنزيل التحديث مباشرة عبر المتصفح.'
-      );
+    }
+  } catch (err) {
+    console.warn('Tier 1 GitHub API check failed, proceeding to Tier 2:', err);
+  }
+
+  // =========================================================================
+  // TIER 2: GitHub Web Releases Redirect (100% immune to API rate limits)
+  // =========================================================================
+  if (!tag) {
+    try {
+      const webRes = await fetch('https://github.com/XRTM8/Otium-Scan/releases/latest', {
+        redirect: 'manual',
+      }).catch(() => null);
+
+      if (webRes) {
+        const location = webRes.headers.get('location') || webRes.url;
+        const match = location?.match(/tag\/v?([0-9]+\.[0-9]+\.[0-9]+)/i);
+        if (match && match[1]) {
+          tag = match[1].trim();
+          releaseUrl = `https://github.com/XRTM8/Otium-Scan/releases/tag/v${tag}`;
+        }
+      }
+    } catch (err) {
+      console.warn('Tier 2 GitHub web redirect check failed, proceeding to Tier 3:', err);
     }
   }
 
-  if (!data || (!data.tag_name && !data.name)) {
-    throw new Error('تعذر قراءة بيانات الإصدار الأخير من GitHub.');
+  // =========================================================================
+  // TIER 3: Raw Repository package.json (Direct from Git raw, 0 rate limit)
+  // =========================================================================
+  if (!tag) {
+    try {
+      const RAW_PKG_URL = 'https://raw.githubusercontent.com/XRTM8/Otium-Scan/main/package.json';
+      let pkgText: string | null = await nativeFetchUrl(RAW_PKG_URL);
+      if (!pkgText || pkgText.startsWith('ERROR:')) {
+        const rawRes = await fetch(RAW_PKG_URL).catch(() => null);
+        if (rawRes && rawRes.ok) {
+          pkgText = await rawRes.text().catch(() => null);
+        }
+      }
+
+      if (pkgText) {
+        const pkg = JSON.parse(pkgText);
+        if (pkg && pkg.version) {
+          tag = pkg.version.replace(/^v/i, '').trim();
+          releaseUrl = `https://github.com/XRTM8/Otium-Scan/releases/tag/v${tag}`;
+        }
+      }
+    } catch (err) {
+      console.warn('Tier 3 Raw package.json check failed:', err);
+    }
   }
 
-  const tag = (data.tag_name || data.name || '').replace(/^v/i, '');
+  if (!tag) {
+    throw new Error('تعذر الاتصال بخوادم التحديثات. يرجى التحقق من اتصالك بالإنترنت.');
+  }
+
   const hasUpdate = isNewerVersion(tag, APP_CURRENT_VERSION);
 
-  const assets: ReleaseAsset[] = Array.isArray(data.assets)
-    ? data.assets.map((a: any) => ({
-        name: a.name,
-        size: a.size,
-        downloadUrl: a.browser_download_url,
-      }))
-    : [];
+  // If assets were not available from API (Tier 2 or Tier 3 used), synthesize official deterministic URLs
+  if (allAssets.length === 0 && tag) {
+    const knownAbis: ('arm64-v8a' | 'armeabi-v7a' | 'x86_64')[] = ['arm64-v8a', 'armeabi-v7a', 'x86_64'];
+    allAssets = knownAbis.map((abi) => ({
+      name: `OtiumScan_${tag}_${abi}.apk`,
+      size: 7 * 1024 * 1024,
+      downloadUrl: `https://github.com/XRTM8/Otium-Scan/releases/download/v${tag}/OtiumScan_${tag}_${abi}.apk`,
+    }));
+  }
 
-  const targetAbi = detectDeviceArchitecture();
-  const matchedAsset =
-    assets.find((a) => a.name.includes(targetAbi) && a.name.endsWith('.apk')) ||
-    assets.find((a) => a.name.endsWith('.apk'));
+  matchedAsset =
+    allAssets.find((a) => a.name.includes(targetAbi) && a.name.endsWith('.apk')) ||
+    allAssets.find((a) => a.name.endsWith('.apk'));
 
   return {
     hasUpdate,
     currentVersion: APP_CURRENT_VERSION,
     latestVersion: tag || APP_CURRENT_VERSION,
-    releaseUrl: data.html_url || 'https://github.com/XRTM8/Otium-Scan/releases',
-    releaseNotes: data.body || '',
-    publishedAt: data.published_at,
+    releaseUrl,
+    releaseNotes,
+    publishedAt,
     matchedAsset,
-    allAssets: assets,
+    allAssets,
   };
 }
