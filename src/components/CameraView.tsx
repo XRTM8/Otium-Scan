@@ -293,12 +293,16 @@ export const CameraView: React.FC<CameraViewProps> = ({
           { x: Math.floor(w * 0.5), y: Math.floor(h * 0.7) },
         ];
         let total = 0;
+        let nonZeroCount = 0;
         for (const p of pts) {
           const pixel = ctx.getImageData(p.x, p.y, 1, 1).data;
           total += pixel[0] + pixel[1] + pixel[2];
+          if (pixel[3] > 0 && (pixel[0] > 0 || pixel[1] > 0 || pixel[2] > 0)) {
+            nonZeroCount++;
+          }
         }
         const avg = total / (pts.length * 3);
-        return avg >= 5; // Valid non-black frame
+        return avg >= 5 && nonZeroCount >= 3;
       } catch {
         return true;
       }
@@ -321,8 +325,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
               canvas.height = bitmap.height;
               const ctx = canvas.getContext('2d', { willReadFrequently: true });
               if (ctx) {
-                ctx.fillStyle = '#FFFFFF';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
                 ctx.drawImage(bitmap, 0, 0);
                 if (checkCanvasNonBlack(ctx, canvas.width, canvas.height)) {
                   return {
@@ -377,7 +379,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
     const tryVideoCanvas = async (): Promise<{ dataUrl: string; width: number; height: number } | null> => {
       const video = videoRef.current;
-      if (!video || video.videoWidth === 0 || video.videoHeight === 0) return null;
+      if (!video || video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) return null;
 
       const canvas = document.createElement('canvas');
       canvas.width = video.videoWidth;
@@ -385,14 +387,10 @@ export const CameraView: React.FC<CameraViewProps> = ({
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
       if (!ctx) return null;
 
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
       if (!checkCanvasNonBlack(ctx, canvas.width, canvas.height)) {
         await new Promise((r) => requestAnimationFrame(r));
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       }
 
@@ -404,12 +402,12 @@ export const CameraView: React.FC<CameraViewProps> = ({
     };
 
     try {
-      let captureResult = await tryGrabFrame();
+      let captureResult = await tryVideoCanvas();
       if (!captureResult) {
-        captureResult = await tryTakePhoto();
+        captureResult = await tryGrabFrame();
       }
       if (!captureResult) {
-        captureResult = await tryVideoCanvas();
+        captureResult = await tryTakePhoto();
       }
 
       if (captureResult) {

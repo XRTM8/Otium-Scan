@@ -57,18 +57,22 @@ export function applyFilter(
   switch (filter) {
     case 'magic':
       applyAdaptiveMagicFilter(data, width, height);
+      applyUnsharpMask(data, width, height, 0.45);
       break;
     case 'vibrant':
       applyAdaptiveVibrantFilter(data, width, height);
+      applyUnsharpMask(data, width, height, 0.35);
       break;
     case 'bw':
       applyAdaptiveBwFilter(data, width, height);
       break;
     case 'grayscale':
       applyAdaptiveGrayscaleFilter(data, width, height);
+      applyUnsharpMask(data, width, height, 0.45);
       break;
     case 'vintage':
       applyAdaptiveVintageFilter(data, width, height);
+      applyUnsharpMask(data, width, height, 0.40);
       break;
   }
 
@@ -145,7 +149,7 @@ function computeIlluminationGrid(
  * - Protects and enhances colored stamps, signatures, and notary seals.
  */
 function applyAdaptiveMagicFilter(data: Uint8ClampedArray, width: number, height: number) {
-  const step = Math.max(16, Math.min(48, Math.floor(Math.min(width, height) / 32)));
+  const step = Math.max(24, Math.min(64, Math.floor(Math.min(width, height) / 24)));
   const { grid, gridW, gridH } = computeIlluminationGrid(data, width, height, step);
 
   for (let y = 0; y < height; y++) {
@@ -184,23 +188,23 @@ function applyAdaptiveMagicFilter(data: Uint8ClampedArray, width: number, height
       const bgRatio = lum / 255;
 
       // 1. Color Stamp & Seal Protection (Chroma Boost)
-      if (chroma > 22 && bgRatio < 0.90) {
+      if (chroma > 18 && bgRatio < 0.92) {
         const mean = (nr + ng + nb) / 3;
         nr = mean + (nr - mean) * 1.35;
         ng = mean + (ng - mean) * 1.35;
         nb = mean + (nb - mean) * 1.35;
       }
       // 2. Pure Paper Whitening via Smooth Sigmoid Transition
-      else if (bgRatio >= 0.85) {
-        const t = Math.min(1, (bgRatio - 0.85) / 0.15);
+      else if (bgRatio >= 0.82) {
+        const t = Math.min(1, (bgRatio - 0.82) / 0.18);
         const hermite = t * t * (3 - 2 * t);
         nr = nr * (1 - hermite) + 255 * hermite;
         ng = ng * (1 - hermite) + 255 * hermite;
         nb = nb * (1 - hermite) + 255 * hermite;
       }
       // 3. Text and Line Deepening (Rich Dark Contrast)
-      else if (bgRatio < 0.62) {
-        const inkFactor = Math.pow(bgRatio / 0.62, 0.45);
+      else if (bgRatio < 0.65) {
+        const inkFactor = Math.pow(bgRatio / 0.65, 0.50);
         nr *= inkFactor;
         ng *= inkFactor;
         nb *= inkFactor;
@@ -396,6 +400,44 @@ function applyAdaptiveVintageFilter(data: Uint8ClampedArray, width: number, heig
       data[idx] = Math.min(255, Math.max(0, Math.round(nr)));
       data[idx + 1] = Math.min(255, Math.max(0, Math.round(ng)));
       data[idx + 2] = Math.min(255, Math.max(0, Math.round(nb)));
+    }
+  }
+}
+
+/**
+ * High-Speed Laplacian Edge Sharpening (CamScanner Pop).
+ * Enhances typography edges and micro-details so text jumps out with razor clarity.
+ */
+function applyUnsharpMask(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  amount: number = 0.45
+) {
+  if (width < 3 || height < 3) return;
+  const copy = new Uint8ClampedArray(data);
+
+  for (let y = 1; y < height - 1; y++) {
+    const row = y * width * 4;
+    const prevRow = (y - 1) * width * 4;
+    const nextRow = (y + 1) * width * 4;
+
+    for (let x = 1; x < width - 1; x++) {
+      const idx = row + (x * 4);
+      const lum = 0.299 * copy[idx] + 0.587 * copy[idx + 1] + 0.114 * copy[idx + 2];
+      if (lum > 250) continue; // Skip pure paper background to preserve clean whites and speed up
+
+      const left = row + ((x - 1) * 4);
+      const right = row + ((x + 1) * 4);
+      const up = prevRow + (x * 4);
+      const down = nextRow + (x * 4);
+
+      for (let c = 0; c < 3; c++) {
+        const val = copy[idx + c];
+        const laplacian = 4 * val - copy[left + c] - copy[right + c] - copy[up + c] - copy[down + c];
+        const res = val + laplacian * amount;
+        data[idx + c] = res < 0 ? 0 : res > 255 ? 255 : Math.round(res);
+      }
     }
   }
 }

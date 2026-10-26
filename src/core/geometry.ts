@@ -191,8 +191,8 @@ function renderQuadSubdivision(
   h: number
 ) {
   const { topLeft: tl, topRight: tr, bottomRight: br, bottomLeft: bl } = quad;
-  // 4x4 subdivision (16 quads = 32 triangles) is optimal for mobile WebView performance
-  const steps = 4;
+  // 6x6 subdivision (36 quads = 72 triangles) provides smooth perspective warping without distortion
+  const steps = 6;
 
   for (let y = 0; y < steps; y++) {
     for (let x = 0; x < steps; x++) {
@@ -216,9 +216,10 @@ function bilinearInterpolate(tl: Point, tr: Point, bl: Point, br: Point, u: numb
   const topX = tl.x + (tr.x - tl.x) * u;
   const topY = tl.y + (tr.y - tl.y) * u;
   const botX = bl.x + (br.x - bl.x) * u;
+  const botY = bl.y + (br.y - bl.y) * u;
   return {
     x: topX + (botX - topX) * v,
-    y: topY + (bl.y + (br.y - bl.y) * u - topY) * v,
+    y: topY + (botY - topY) * v,
   };
 }
 
@@ -230,12 +231,12 @@ function renderTriangle(
   d1x: number, d1y: number,
   d2x: number, d2y: number
 ) {
-  // Centroid expansion by 0.45px to eliminate anti-aliasing hairline gaps between adjacent quads
+  // Centroid expansion by 0.5px to eliminate anti-aliasing hairline gaps between adjacent quads
   const cx = (d0x + d1x + d2x) / 3;
   const cy = (d0y + d1y + d2y) / 3;
   const ex = (x: number, y: number) => ({
-    x: x + Math.sign(x - cx || 1) * 0.45,
-    y: y + Math.sign(y - cy || 1) * 0.45,
+    x: x + Math.sign(x - cx || 1) * 0.5,
+    y: y + Math.sign(y - cy || 1) * 0.5,
   });
   const e0 = ex(d0x, d0y);
   const e1 = ex(d1x, d1y);
@@ -249,20 +250,24 @@ function renderTriangle(
   ctx.closePath();
   ctx.clip();
 
-  const denom = (s0.x * (s1.y - s2.y) + s1.x * (s2.y - s0.y) + s2.x * (s0.y - s1.y));
-  if (Math.abs(denom) < 0.0001) {
+  const det = s0.x * (s1.y - s2.y) + s1.x * (s2.y - s0.y) + s2.x * (s0.y - s1.y);
+  if (Math.abs(det) < 1e-5) {
     ctx.restore();
     return;
   }
 
-  const m11 = -(s0.y * (d1x - d2x) + s1.y * (d2x - d0x) + s2.y * (d0x - d1x)) / denom;
-  const m12 = (s0.y * (d1y - d2y) + s1.y * (d2y - d0y) + s2.y * (d0y - d1y)) / denom;
-  const m21 = (s0.x * (d1x - d2x) + s1.x * (d2x - d0x) + s2.x * (d0x - d1x)) / denom;
-  const m22 = -(s0.x * (d1y - d2y) + s1.x * (d2y - d0y) + s2.x * (d0y - d1y)) / denom;
-  const dx = (s0.x * (s1.y * d2x - s2.y * d1x) + s0.y * (s2.x * d1x - s1.x * d2x) + (s1.x * s2.y - s2.x * s1.y) * d0x) / denom;
-  const dy = (s0.x * (s1.y * d2y - s2.y * d1y) + s0.y * (s2.x * d1y - s1.x * d2y) + (s1.x * s2.y - s2.x * s1.y) * d0y) / denom;
+  // Linear system: map (s_i.x, s_i.y) -> (d_i.x, d_i.y)
+  // dx = a*sx + c*sy + e
+  const a = (d0x * (s1.y - s2.y) + d1x * (s2.y - s0.y) + d2x * (s0.y - s1.y)) / det;
+  const c = (d0x * (s2.x - s1.x) + d1x * (s0.x - s2.x) + d2x * (s1.x - s0.x)) / det;
+  const e = (d0x * (s1.x * s2.y - s2.x * s1.y) + d1x * (s2.x * s0.y - s0.x * s2.y) + d2x * (s0.x * s1.y - s1.x * s0.y)) / det;
 
-  ctx.transform(m11, m12, m21, m22, dx, dy);
+  // dy = b*sx + d*sy + f
+  const b = (d0y * (s1.y - s2.y) + d1y * (s2.y - s0.y) + d2y * (s0.y - s1.y)) / det;
+  const d = (d0y * (s2.x - s1.x) + d1y * (s0.x - s2.x) + d2y * (s1.x - s0.x)) / det;
+  const f = (d0y * (s1.x * s2.y - s2.x * s1.y) + d1y * (s2.x * s0.y - s0.x * s2.y) + d2y * (s0.x * s1.y - s1.x * s0.y)) / det;
+
+  ctx.transform(a, b, c, d, e, f);
   ctx.drawImage(img, 0, 0);
   ctx.restore();
 }
