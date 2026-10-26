@@ -201,6 +201,21 @@ export const App: React.FC = () => {
     setStep('camera');
   };
 
+  const handleDuplicatePage = (index: number) => {
+    const page = pages[index];
+    if (!page) return;
+    const duplicated: ScannedPage = {
+      ...page,
+      id: `page_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      timestamp: Date.now(),
+    };
+    setPages((prev) => {
+      const updated = [...prev];
+      updated.splice(index + 1, 0, duplicated);
+      return updated;
+    });
+  };
+
   const handleRotatePage = async (index: number) => {
     const page = pages[index];
     if (!page) return;
@@ -255,6 +270,7 @@ export const App: React.FC = () => {
           onRetakePage={handleRetakePage}
           onRotatePage={handleRotatePage}
           onEditCrop={handleEditCrop}
+          onDuplicatePage={handleDuplicatePage}
           onResetAll={handleResetAll}
         />
       )}

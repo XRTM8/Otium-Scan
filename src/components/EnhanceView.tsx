@@ -42,6 +42,8 @@ import {
   ExternalLink,
   EyeOff,
   Undo2,
+  Palette,
+  CopyCheck,
 } from 'lucide-react';
 
 interface EnhanceViewProps {
@@ -53,6 +55,7 @@ interface EnhanceViewProps {
   onRetakePage: (index: number) => void;
   onRotatePage: (index: number) => Promise<void>;
   onEditCrop?: (index: number) => void;
+  onDuplicatePage?: (index: number) => void;
   onResetAll: () => void;
 }
 
@@ -65,6 +68,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
   onRetakePage,
   onRotatePage,
   onEditCrop,
+  onDuplicatePage,
 }) => {
   const [currentPageIndex, setCurrentPageIndex] = useState<number>(0);
   const [activeFilter, setActiveFilter] = useState<FilterType>('magic');
@@ -982,6 +986,20 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
               <span>إعادة التقاط</span>
             </button>
 
+            {onDuplicatePage && (
+              <button
+                onClick={() => {
+                  triggerHaptic(15);
+                  onDuplicatePage(safeIndex);
+                }}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-full glass-button text-gray-300 hover:text-emerald-400 text-xs font-medium active:scale-95 transition-transform"
+                title="مضاعفة هذه الصفحة / Duplicate Page"
+              >
+                <CopyCheck className="w-3.5 h-3.5" />
+                <span>مضاعفة</span>
+              </button>
+            )}
+
             {pages.length > 1 && (
               <button
                 onClick={() => {
@@ -1168,13 +1186,15 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
         </div>
 
         {/* Filter Pills */}
-        <div className="flex items-center justify-center gap-2">
+        <div className="flex items-center justify-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
           {(
             [
-              { id: 'magic', label: 'Magic Color', icon: Sparkles },
-              { id: 'bw', label: 'B&W Doc' },
-              { id: 'grayscale', label: 'Grayscale' },
-              { id: 'original', label: 'Original' },
+              { id: 'magic', label: 'سحري ناصع', icon: Sparkles },
+              { id: 'vibrant', label: 'ملون فائق', icon: Palette },
+              { id: 'bw', label: 'أبيض وأسود' },
+              { id: 'grayscale', label: 'رمادي' },
+              { id: 'vintage', label: 'أوراق قديمة' },
+              { id: 'original', label: 'الأصلي' },
             ] as const
           ).map((item) => {
             const isActive = activeFilter === item.id;
@@ -1197,10 +1217,10 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
           {pages.length > 1 && (
             <button
               onClick={handleApplyFilterToAll}
-              className="text-[10px] text-emerald-400 font-semibold underline underline-offset-2 ml-1 active:opacity-60"
-              title="Apply current filter to all pages"
+              className="text-[10px] text-emerald-400 font-semibold underline underline-offset-2 ml-1 active:opacity-60 whitespace-nowrap"
+              title="تطبيق الفلتر على جميع الصفحات"
             >
-              Apply to all
+              تطبيق على الكل
             </button>
           )}
         </div>
@@ -1242,6 +1262,16 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
             <Plus className="w-5 h-5 mb-0.5" />
             <span className="text-[9px] font-semibold">Add</span>
           </button>
+        </div>
+
+        {/* Live Estimated PDF Size Badge */}
+        <div className="flex items-center justify-between px-1 text-[10px] text-gray-400 font-arabic">
+          <span>
+            تقدير حجم الملف: <span className="text-emerald-400 font-bold font-mono">{compressionPreset === 'compact' ? `${Math.round(pages.length * 35)} KB` : compressionPreset === 'balanced' ? `${(pages.length * 0.18).toFixed(1)} MB` : `${(pages.length * 0.85).toFixed(1)} MB`}</span>
+          </span>
+          <span className="text-gray-500">
+            {pages.length} {pages.length === 1 ? 'صفحة' : 'صفحات'} • جودة {compressionPreset === 'compact' ? 'مضغوطة' : compressionPreset === 'balanced' ? 'متوازنة' : 'فائقة'}
+          </span>
         </div>
 
         {/* Action Row */}

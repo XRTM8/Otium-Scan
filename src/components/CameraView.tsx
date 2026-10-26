@@ -9,6 +9,9 @@ import {
   CreditCard,
   FileCheck2,
   FileText,
+  Volume2,
+  VolumeX,
+  RefreshCw,
 } from 'lucide-react';
 import { OtiumLogo } from './OtiumLogo';
 import { playShutterSound } from '../core/audio';
@@ -57,19 +60,25 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const liveNormalizedQuadRef = useRef<Quad | null>(null);
   const trackerCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
+  // Sensor & Device States
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
+  const [isMuted, setIsMuted] = useState(false);
+  const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(null);
+  const [tiltAngle, setTiltAngle] = useState<{ x: number; y: number; isLevel: boolean }>({ x: 0, y: 0, isLevel: true });
+
   const initCamera = useCallback(async () => {
     // Ultra-compatible camera constraints for Android WebView
     const constraintList: MediaStreamConstraints[] = [
       {
         video: {
-          facingMode: { ideal: 'environment' },
+          facingMode: { ideal: facingMode },
           width: { ideal: 1920 },
           height: { ideal: 1080 },
         },
         audio: false,
       },
       {
-        video: { facingMode: 'environment' },
+        video: { facingMode },
         audio: false,
       },
       {
@@ -150,10 +159,51 @@ export const CameraView: React.FC<CameraViewProps> = ({
     }
   };
 
+  // 2D Gyroscope Spirit Level Tracker
+  useEffect(() => {
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      if (e.beta === null || e.gamma === null) return;
+      const roll = e.gamma;
+      const pitch = e.beta;
+      const devX = Math.max(-1, Math.min(1, roll / 20));
+      const devY = Math.max(-1, Math.min(1, (pitch > 45 ? pitch - 90 : pitch) / 20));
+      const isLevel = Math.abs(roll) < 4.5 && (Math.abs(pitch) < 4.5 || Math.abs(pitch - 90) < 4.5);
+      setTiltAngle({ x: devX, y: devY, isLevel });
+    };
+
+    window.addEventListener('deviceorientation', handleOrientation);
+    return () => window.removeEventListener('deviceorientation', handleOrientation);
+  }, []);
+
+  const handleViewfinderTap = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = viewfinderRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    setFocusPoint({ x, y });
+    triggerHaptic(12);
+
+    if (stream) {
+      const track = stream.getVideoTracks()[0];
+      try {
+        const capabilities = track.getCapabilities?.() as any;
+        if (capabilities?.focusMode?.includes('continuous')) {
+          track.applyConstraints({
+            advanced: [{ focusMode: 'continuous' } as any],
+          }).catch(() => {});
+        }
+      } catch {}
+    }
+
+    setTimeout(() => setFocusPoint(null), 1200);
+  };
+
   const handleCapture = useCallback(async () => {
     if (capturing) return;
     triggerHaptic(35);
-    playShutterSound();
+    if (!isMuted) {
+      playShutterSound();
+    }
     setCapturing(true);
 
     // Shutter flash animation
@@ -373,7 +423,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
       fileInputRef.current?.click();
       setCapturing(false);
     }
-  }, [capturing, idCardStep, idFrontDataUrl, onCapture, pagesCount, scanMode, stream]);
+  }, [capturing, idCardStep, idFrontDataUrl, isMuted, onCapture, pagesCount, scanMode, stream]);
 
   // Real-Time Live Document Boundary Tracker (15-20 FPS, Lerp-smoothed)
   useEffect(() => {
@@ -642,8 +692,32 @@ export const CameraView: React.FC<CameraViewProps> = ({
           </div>
         </button>
 
-        {/* Quick Flashlight & Auto Toggle */}
-        <div className="flex items-center gap-2">
+        {/* Quick Controls: Flashlight, Mute, Switch Camera & Auto Toggle */}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => {
+              triggerHaptic(15);
+              setIsMuted(!isMuted);
+            }}
+            className={`p-2 rounded-full glass-button transition-colors ${
+              isMuted ? 'text-yellow-400 border-yellow-500/40 bg-yellow-500/10' : 'text-gray-300'
+            }`}
+            title={isMuted ? 'الصوت مكتوم / Muted' : 'صوت الالتقاط مفعل / Sound On'}
+          >
+            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+          </button>
+
+          <button
+            onClick={() => {
+              triggerHaptic(15);
+              setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'));
+            }}
+            className="p-2 rounded-full glass-button text-gray-300 hover:text-white active:scale-90"
+            title="تبديل الكاميرا (أمامية / خلفية)"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+
           <button
             onClick={() => {
               triggerHaptic(15);
@@ -673,7 +747,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
       </div>
 
       {/* Main Viewfinder Screen */}
-      <div ref={viewfinderRef} className="relative flex-1 w-full h-full flex items-center justify-center overflow-hidden">
+      <div
+        ref={viewfinderRef}
+        onClick={handleViewfinderTap}
+        className="relative flex-1 w-full h-full flex items-center justify-center overflow-hidden cursor-crosshair"
+      >
         <video
           ref={videoRef}
           autoPlay
@@ -685,6 +763,34 @@ export const CameraView: React.FC<CameraViewProps> = ({
           }}
           className="absolute inset-0 w-full h-full object-cover"
         />
+
+        {/* 2D Gyroscope Spirit Level Bubble */}
+        <div className="absolute top-4 left-4 z-20 pointer-events-none flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10 shadow-lg">
+          <div className="relative w-4 h-4 rounded-full border border-white/30 flex items-center justify-center">
+            <div
+              style={{
+                transform: `translate(${tiltAngle.x * 4}px, ${tiltAngle.y * 4}px)`,
+              }}
+              className={`w-1.5 h-1.5 rounded-full transition-transform duration-75 ${
+                tiltAngle.isLevel ? 'bg-emerald-400 shadow-sm shadow-emerald-400' : 'bg-yellow-400'
+              }`}
+            />
+          </div>
+          <span className={`text-[10px] font-bold font-arabic ${tiltAngle.isLevel ? 'text-emerald-400' : 'text-gray-400'}`}>
+            {tiltAngle.isLevel ? 'مستوى مثالي' : 'اضبط الزاوية'}
+          </span>
+        </div>
+
+        {/* Tap-to-Focus Animated Reticle */}
+        {focusPoint && (
+          <div
+            style={{ left: `${focusPoint.x}px`, top: `${focusPoint.y}px` }}
+            className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none z-30"
+          >
+            <div className="w-14 h-14 rounded-full border-2 border-emerald-400 bg-emerald-500/15 animate-ping" />
+            <div className="absolute inset-0 w-14 h-14 rounded-full border border-emerald-300 shadow-lg" />
+          </div>
+        )}
 
         {/* Real-Time Live Document Boundary Overlay */}
         {liveScreenQuad && scanMode !== 'idcard' && (

@@ -58,11 +58,17 @@ export function applyFilter(
     case 'magic':
       applyAdaptiveMagicFilter(data, width, height);
       break;
+    case 'vibrant':
+      applyAdaptiveVibrantFilter(data, width, height);
+      break;
     case 'bw':
       applyAdaptiveBwFilter(data, width, height);
       break;
     case 'grayscale':
       applyAdaptiveGrayscaleFilter(data, width, height);
+      break;
+    case 'vintage':
+      applyAdaptiveVintageFilter(data, width, height);
       break;
   }
 
@@ -256,5 +262,140 @@ function applyAdaptiveGrayscaleFilter(data: Uint8ClampedArray, width: number, he
     data[i] = lum;
     data[i + 1] = lum;
     data[i + 2] = lum;
+  }
+}
+
+/**
+ * Vibrant Color Document Filter.
+ * Whitens background paper while dramatically boosting color saturation
+ * for diplomas, certificates, colorful diagrams, and magazines.
+ */
+function applyAdaptiveVibrantFilter(data: Uint8ClampedArray, width: number, height: number) {
+  const step = Math.max(16, Math.min(48, Math.floor(Math.min(width, height) / 32)));
+  const { grid, gridW, gridH } = computeIlluminationGrid(data, width, height, step);
+
+  for (let y = 0; y < height; y++) {
+    const gyFloat = y / step;
+    const gy0 = Math.floor(gyFloat);
+    const gy1 = Math.min(gridH - 1, gy0 + 1);
+    const ty = gyFloat - gy0;
+
+    for (let x = 0; x < width; x++) {
+      const gxFloat = x / step;
+      const gx0 = Math.floor(gxFloat);
+      const gx1 = Math.min(gridW - 1, gx0 + 1);
+      const tx = gxFloat - gx0;
+
+      const b00 = grid[gy0 * gridW + gx0];
+      const b10 = grid[gy0 * gridW + gx1];
+      const b01 = grid[gy1 * gridW + gx0];
+      const b11 = grid[gy1 * gridW + gx1];
+      const bgLum = (b00 * (1 - tx) + b10 * tx) * (1 - ty) + (b01 * (1 - tx) + b11 * tx) * ty;
+
+      const idx = (y * width + x) * 4;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+
+      const scale = 255 / Math.max(40, bgLum);
+      let nr = r * scale;
+      let ng = g * scale;
+      let nb = b * scale;
+
+      const lum = 0.299 * nr + 0.587 * ng + 0.114 * nb;
+      const maxVal = Math.max(r, g, b);
+      const minVal = Math.min(r, g, b);
+      const chroma = maxVal - minVal;
+      const bgRatio = lum / 255;
+
+      // Color saturation boost
+      if (chroma > 15) {
+        const mean = (nr + ng + nb) / 3;
+        const satFactor = 1.45;
+        nr = mean + (nr - mean) * satFactor;
+        ng = mean + (ng - mean) * satFactor;
+        nb = mean + (nb - mean) * satFactor;
+      }
+
+      // Smooth background whitening
+      if (bgRatio >= 0.86) {
+        const t = Math.min(1, (bgRatio - 0.86) / 0.14);
+        const hermite = t * t * (3 - 2 * t);
+        nr = nr * (1 - hermite) + 255 * hermite;
+        ng = ng * (1 - hermite) + 255 * hermite;
+        nb = nb * (1 - hermite) + 255 * hermite;
+      }
+
+      data[idx] = Math.min(255, Math.max(0, Math.round(nr)));
+      data[idx + 1] = Math.min(255, Math.max(0, Math.round(ng)));
+      data[idx + 2] = Math.min(255, Math.max(0, Math.round(nb)));
+    }
+  }
+}
+
+/**
+ * Vintage & Antique Document Restorer Filter.
+ * Removes brown/yellow paper aging cast (tea/coffee/oxidation stains)
+ * and deepens fading sepia/black historical ink.
+ */
+function applyAdaptiveVintageFilter(data: Uint8ClampedArray, width: number, height: number) {
+  const step = Math.max(16, Math.min(48, Math.floor(Math.min(width, height) / 32)));
+  const { grid, gridW, gridH } = computeIlluminationGrid(data, width, height, step);
+
+  for (let y = 0; y < height; y++) {
+    const gyFloat = y / step;
+    const gy0 = Math.floor(gyFloat);
+    const gy1 = Math.min(gridH - 1, gy0 + 1);
+    const ty = gyFloat - gy0;
+
+    for (let x = 0; x < width; x++) {
+      const gxFloat = x / step;
+      const gx0 = Math.floor(gxFloat);
+      const gx1 = Math.min(gridW - 1, gx0 + 1);
+      const tx = gxFloat - gx0;
+
+      const b00 = grid[gy0 * gridW + gx0];
+      const b10 = grid[gy0 * gridW + gx1];
+      const b01 = grid[gy1 * gridW + gx0];
+      const b11 = grid[gy1 * gridW + gx1];
+      const bgLum = (b00 * (1 - tx) + b10 * tx) * (1 - ty) + (b01 * (1 - tx) + b11 * tx) * ty;
+
+      const idx = (y * width + x) * 4;
+      let r = data[idx];
+      let g = data[idx + 1];
+      let b = data[idx + 2];
+
+      // Compensate for yellowing (boost blue towards green/red average)
+      const rgAvg = (r + g) / 2;
+      if (rgAvg > b + 20) {
+        b = Math.min(255, Math.round(b + (rgAvg - b) * 0.75));
+      }
+
+      const scale = 255 / Math.max(36, bgLum);
+      let nr = r * scale;
+      let ng = g * scale;
+      let nb = b * scale;
+
+      const lum = 0.299 * nr + 0.587 * ng + 0.114 * nb;
+      const bgRatio = lum / 255;
+
+      if (bgRatio >= 0.82) {
+        const t = Math.min(1, (bgRatio - 0.82) / 0.18);
+        const hermite = t * t * (3 - 2 * t);
+        nr = nr * (1 - hermite) + 255 * hermite;
+        ng = ng * (1 - hermite) + 255 * hermite;
+        nb = nb * (1 - hermite) + 255 * hermite;
+      } else if (bgRatio < 0.65) {
+        // Deepen faded historical ink
+        const factor = Math.pow(bgRatio / 0.65, 0.55);
+        nr *= factor;
+        ng *= factor;
+        nb *= factor;
+      }
+
+      data[idx] = Math.min(255, Math.max(0, Math.round(nr)));
+      data[idx + 1] = Math.min(255, Math.max(0, Math.round(ng)));
+      data[idx + 2] = Math.min(255, Math.max(0, Math.round(nb)));
+    }
   }
 }

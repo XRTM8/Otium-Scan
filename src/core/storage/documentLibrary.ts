@@ -4,6 +4,8 @@
  * and share previous scans days or weeks later.
  */
 
+import { DocumentCategory } from '../types';
+
 const DB_NAME = 'otium_scan_library';
 const STORE_NAME = 'documents';
 
@@ -14,6 +16,8 @@ export interface LibraryDocument {
   thumbnail: string;
   pdfBlob: Blob;
   createdAt: number;
+  category?: DocumentCategory;
+  ocrText?: string;
 }
 
 let dbInstance: IDBDatabase | null = null;

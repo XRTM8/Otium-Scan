@@ -2,7 +2,7 @@ import React, { useRef, useState, useCallback } from 'react';
 import { Point, Quad } from '../core/types';
 import { getDefaultQuad, warpPerspective, isQuadConvex } from '../core/geometry';
 import { detectDocumentCorners } from '../core/edgeDetection';
-import { Check, RotateCcw, X, Wand2, RotateCw, Maximize2 } from 'lucide-react';
+import { Check, RotateCcw, X, Wand2, RotateCw, Maximize2, Undo2, Redo2, FileText, CreditCard, Receipt } from 'lucide-react';
 
 interface CropViewProps {
   imageSrc: string;
@@ -26,6 +26,10 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, initialQuad, onCon
   const [imageSize, setImageSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   const hasInitializedRef = useRef(false);
 
+  // Undo / Redo History Stack
+  const [undoStack, setUndoStack] = useState<Quad[]>([]);
+  const [redoStack, setRedoStack] = useState<Quad[]>([]);
+
   const triggerHaptic = useCallback((duration = 10) => {
     if ('vibrate' in navigator) {
       try {
@@ -33,6 +37,59 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, initialQuad, onCon
       } catch {}
     }
   }, []);
+
+  const pushHistory = useCallback((currentQuad: Quad | null) => {
+    if (!currentQuad) return;
+    setUndoStack((prev) => [...prev.slice(-12), { ...currentQuad }]);
+    setRedoStack([]);
+  }, []);
+
+  const handleUndo = () => {
+    if (undoStack.length === 0 || !quad) return;
+    triggerHaptic(10);
+    const prev = undoStack[undoStack.length - 1];
+    setRedoStack((r) => [...r, { ...quad }]);
+    setUndoStack((u) => u.slice(0, -1));
+    setQuad(prev);
+  };
+
+  const handleRedo = () => {
+    if (redoStack.length === 0 || !quad) return;
+    triggerHaptic(10);
+    const next = redoStack[redoStack.length - 1];
+    setUndoStack((u) => [...u, { ...quad }]);
+    setRedoStack((r) => r.slice(0, -1));
+    setQuad(next);
+  };
+
+  const applyAspectRatio = (ratio: number) => {
+    if (!imageRef.current || imageSize.width === 0 || imageSize.height === 0 || !quad) return;
+    triggerHaptic(15);
+    pushHistory(quad);
+
+    const imgW = imageSize.width;
+    const imgH = imageSize.height;
+
+    let targetW = imgW * 0.90;
+    let targetH = targetW / ratio;
+
+    if (targetH > imgH * 0.90) {
+      targetH = imgH * 0.90;
+      targetW = targetH * ratio;
+    }
+
+    const x0 = Math.round((imgW - targetW) / 2);
+    const y0 = Math.round((imgH - targetH) / 2);
+    const x1 = Math.round(x0 + targetW);
+    const y1 = Math.round(y0 + targetH);
+
+    setQuad({
+      topLeft: { x: x0, y: y0 },
+      topRight: { x: x1, y: y0 },
+      bottomRight: { x: x1, y: y1 },
+      bottomLeft: { x: x0, y: y1 },
+    });
+  };
 
   const handleImageLoad = () => {
     if (!imageRef.current) return;
@@ -56,15 +113,17 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, initialQuad, onCon
   };
 
   const handleAutoDetect = () => {
-    if (!imageRef.current) return;
+    if (!imageRef.current || !quad) return;
     triggerHaptic(15);
+    pushHistory(quad);
     const detected = detectDocumentCorners(imageRef.current);
     setQuad(detected);
   };
 
   const handleSelectFullImage = () => {
-    if (imageSize.width === 0 || imageSize.height === 0) return;
+    if (imageSize.width === 0 || imageSize.height === 0 || !quad) return;
     triggerHaptic(15);
+    pushHistory(quad);
     setQuad({
       topLeft: { x: 0, y: 0 },
       topRight: { x: imageSize.width, y: 0 },
@@ -74,7 +133,9 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, initialQuad, onCon
   };
 
   const handleResetQuad = () => {
+    if (!quad) return;
     triggerHaptic(15);
+    pushHistory(quad);
     setQuad(getDefaultQuad(imageSize.width, imageSize.height));
   };
 
@@ -113,6 +174,7 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, initialQuad, onCon
   const handleCornerPointerDown = (corner: CornerKey, e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    pushHistory(quad);
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     setActiveCorner(corner);
     setActiveEdge(null);
@@ -124,6 +186,7 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, initialQuad, onCon
     e.preventDefault();
     e.stopPropagation();
     if (!quad) return;
+    pushHistory(quad);
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     setActiveEdge(edge);
     setActiveCorner(null);
@@ -334,6 +397,22 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, initialQuad, onCon
 
         <div className="flex items-center gap-1.5">
           <button
+            onClick={handleUndo}
+            disabled={undoStack.length === 0}
+            className="p-2 rounded-full glass-button text-gray-300 disabled:opacity-30 hover:text-white active:scale-90"
+            title="تراجع / Undo"
+          >
+            <Undo2 className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={handleRedo}
+            disabled={redoStack.length === 0}
+            className="p-2 rounded-full glass-button text-gray-300 disabled:opacity-30 hover:text-white active:scale-90"
+            title="إعادة / Redo"
+          >
+            <Redo2 className="w-3.5 h-3.5" />
+          </button>
+          <button
             onClick={handleSelectFullImage}
             className="flex items-center gap-1 px-2.5 py-1.5 rounded-full glass-button text-emerald-400 active:scale-95 text-[11px] font-bold"
             title="تحديد كامل الصورة / Full Image"
@@ -462,6 +541,42 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, initialQuad, onCon
             </div>
           </div>
         )}
+      </div>
+
+      {/* Aspect Ratio Snapping Bar */}
+      <div className="relative z-30 flex items-center justify-center gap-1.5 px-4 py-2 bg-black/75 backdrop-blur-md border-t border-white/[0.08]">
+        <span className="text-[10px] text-gray-400 font-bold ml-1 font-arabic">المقاس:</span>
+        <button
+          onClick={() => applyAspectRatio(1 / 1.414)}
+          className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-emerald-500/20 text-gray-300 hover:text-emerald-400 text-[11px] font-bold border border-white/10 flex items-center gap-1 active:scale-95 transition-all"
+          title="A4 Standard Document (1:1.414)"
+        >
+          <FileText className="w-3 h-3 text-emerald-400" />
+          <span>A4 قياسي</span>
+        </button>
+        <button
+          onClick={() => applyAspectRatio(0.55)}
+          className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-emerald-500/20 text-gray-300 hover:text-emerald-400 text-[11px] font-bold border border-white/10 flex items-center gap-1 active:scale-95 transition-all"
+          title="Receipt / Invoice"
+        >
+          <Receipt className="w-3 h-3 text-emerald-400" />
+          <span>فاتورة</span>
+        </button>
+        <button
+          onClick={() => applyAspectRatio(1.586)}
+          className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-emerald-500/20 text-gray-300 hover:text-emerald-400 text-[11px] font-bold border border-white/10 flex items-center gap-1 active:scale-95 transition-all"
+          title="ID Card / Business Card"
+        >
+          <CreditCard className="w-3 h-3 text-emerald-400" />
+          <span>هوية / كرت</span>
+        </button>
+        <button
+          onClick={handleResetQuad}
+          className="px-2.5 py-1 rounded-lg bg-white/5 text-gray-400 hover:text-white text-[11px] font-semibold border border-white/5 active:scale-95 transition-all"
+          title="Free custom quad"
+        >
+          <span>حر</span>
+        </button>
       </div>
 
       {/* Bottom Confirm Bar */}

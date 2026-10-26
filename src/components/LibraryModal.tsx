@@ -6,6 +6,7 @@ import {
   exportVaultBackup,
   restoreVaultBackup,
 } from '../core/storage/documentLibrary';
+import { DocumentCategory } from '../core/types';
 import { nativeSharePdf, nativeSavePdf, nativeOpenInOtium } from '../core/nativeBridge';
 import { hasVaultPin, verifyVaultPin, setVaultPin, clearVaultPin } from '../core/security';
 import { OtiumLogo } from './OtiumLogo';
@@ -35,6 +36,7 @@ interface LibraryModalProps {
 export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose }) => {
   const [documents, setDocuments] = useState<LibraryDocument[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<DocumentCategory>('all');
 
   // Cryptographic Vault PIN states
   const [pinEnabled, setPinEnabled] = useState<boolean>(() => hasVaultPin());
@@ -186,9 +188,14 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose }) =
 
   if (!isOpen) return null;
 
-  const filteredDocs = documents.filter((doc) =>
-    doc.title.toLowerCase().includes(searchQuery.toLowerCase().trim())
-  );
+  const filteredDocs = documents.filter((doc) => {
+    const matchesCategory = selectedCategory === 'all' || doc.category === selectedCategory;
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return matchesCategory;
+    const matchesTitle = doc.title.toLowerCase().includes(q);
+    const matchesOcr = doc.ocrText && doc.ocrText.toLowerCase().includes(q);
+    return matchesCategory && (matchesTitle || matchesOcr);
+  });
 
   // Vault Locked PIN Screen
   if (!isUnlocked || isSettingPin) {
@@ -408,6 +415,35 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose }) =
                 ✕
               </button>
             )}
+          </div>
+
+          {/* Category Filter Tabs */}
+          <div className="flex items-center gap-1.5 pt-2.5 overflow-x-auto scrollbar-none">
+            {(
+              [
+                { id: 'all', label: 'الكل' },
+                { id: 'bills', label: 'فواتير' },
+                { id: 'work', label: 'عقود' },
+                { id: 'ids', label: 'هويات' },
+                { id: 'personal', label: 'شخصي' },
+                { id: 'study', label: 'دراسة' },
+              ] as const
+            ).map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => {
+                  triggerHaptic(10);
+                  setSelectedCategory(cat.id);
+                }}
+                className={`px-3 py-1 rounded-full text-[11px] font-bold whitespace-nowrap transition-all ${
+                  selectedCategory === cat.id
+                    ? 'bg-emerald-500 text-black shadow-md'
+                    : 'bg-white/5 text-gray-400 hover:text-white border border-white/5'
+                }`}
+              >
+                {cat.label}
+              </button>
+            ))}
           </div>
         </div>
       )}

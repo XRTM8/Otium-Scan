@@ -10,7 +10,9 @@ export interface Quad {
   bottomLeft: Point;
 }
 
-export type FilterType = 'magic' | 'bw' | 'grayscale' | 'original';
+export type FilterType = 'magic' | 'vibrant' | 'bw' | 'grayscale' | 'vintage' | 'original';
+
+export type DocumentCategory = 'all' | 'work' | 'personal' | 'bills' | 'ids' | 'study';
 
 export interface ScannedPage {
   id: string;
