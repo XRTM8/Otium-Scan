@@ -3,6 +3,7 @@ import { CameraView } from './components/CameraView';
 import { CropView } from './components/CropView';
 import { EnhanceView } from './components/EnhanceView';
 import { LibraryModal } from './components/LibraryModal';
+import { SettingsModal } from './components/SettingsModal';
 import { Quad, ScannedPage, ScanStep } from './core/types';
 import { applyFilterAsync } from './core/filters';
 import {
@@ -22,6 +23,7 @@ export const App: React.FC = () => {
   const [pages, setPages] = useState<ScannedPage[]>([]);
   const [retakeTargetIndex, setRetakeTargetIndex] = useState<number | null>(null);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Hardware Back Button integration for Android
   useEffect(() => {
@@ -248,6 +250,7 @@ export const App: React.FC = () => {
           lastThumbnail={lastThumb}
           onFinishBatch={() => setStep('review')}
           onOpenLibrary={() => setIsLibraryOpen(true)}
+          onOpenSettings={() => setIsSettingsOpen(true)}
         />
       )}
 
@@ -275,7 +278,17 @@ export const App: React.FC = () => {
         />
       )}
 
-      <LibraryModal isOpen={isLibraryOpen} onClose={() => setIsLibraryOpen(false)} />
+      <LibraryModal
+        isOpen={isLibraryOpen}
+        onClose={() => setIsLibraryOpen(false)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+      />
+
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        onOpenVault={() => setIsLibraryOpen(true)}
+      />
     </main>
   );
 };

@@ -42,9 +42,10 @@ import {
 interface LibraryModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onOpenSettings?: () => void;
 }
 
-export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose }) => {
+export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onOpenSettings }) => {
   const [documents, setDocuments] = useState<LibraryDocument[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<DocumentCategory>('all');
@@ -412,10 +413,14 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose }) =
           <button
             onClick={() => {
               triggerHaptic(15);
-              setShowAboutModal(true);
+              if (onOpenSettings) {
+                onOpenSettings();
+              } else {
+                setShowAboutModal(true);
+              }
             }}
             className="p-2 rounded-full glass-button text-gray-300 active:text-emerald-400"
-            title="حول التطبيق والتحقق من التحديثات"
+            title="الإعدادات والتحقق من التحديثات"
           >
             <Info className="w-4 h-4" />
           </button>

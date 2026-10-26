@@ -16,6 +16,7 @@ import { nativeSharePdf, nativeSavePdf, nativeOpenInOtium, nativeSaveImage } fro
 import { SignatureModal } from './SignatureModal';
 import { OtiumLogo } from './OtiumLogo';
 import {
+  X,
   ArrowLeft,
   Share2,
   Sparkles,
@@ -24,8 +25,6 @@ import {
   Trash2,
   ChevronLeft,
   ChevronRight,
-  BookA,
-  Search,
   RotateCcw,
   RotateCw,
   Crop,
@@ -44,6 +43,7 @@ import {
   Undo2,
   Palette,
   CopyCheck,
+  SlidersHorizontal,
 } from 'lucide-react';
 
 interface EnhanceViewProps {
@@ -84,6 +84,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
   const [watermarkText, setWatermarkText] = useState<string>('');
   const [watermarkStyle, setWatermarkStyle] = useState<PdfWatermarkStyle>('diagonal');
   const [isWatermarkOpen, setIsWatermarkOpen] = useState(false);
+  const [isAdvancedOptionsOpen, setIsAdvancedOptionsOpen] = useState(false);
   const [isRedacting, setIsRedacting] = useState<boolean>(false);
   const [redactionStrokes, setRedactionStrokes] = useState<{ x: number; y: number }[][]>([]);
   const [currentStroke, setCurrentStroke] = useState<{ x: number; y: number }[]>([]);
@@ -1042,154 +1043,12 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
       )}
 
       {/* Bottom Controls: Tools, Reordering & Export */}
-      <div className="relative z-20 flex flex-col gap-2 px-6 pt-2 pb-12 glass-panel border-t-0">
-        {/* Tier 1 Bar: Compression Quality & OCR Settings */}
-        <div className="flex items-center justify-between gap-2 px-2.5 py-1 bg-white/5 rounded-xl border border-white/5 text-xs text-gray-300">
-          {/* Smart Compression Selector */}
-          <div className="flex items-center gap-1">
-            <span className="text-[10px] text-gray-400 font-semibold">Size:</span>
-            {(['compact', 'balanced', 'max'] as const).map((tier) => (
-              <button
-                key={tier}
-                onClick={() => {
-                  triggerHaptic(10);
-                  setCompressionPreset(tier);
-                }}
-                className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all ${
-                  compressionPreset === tier
-                    ? 'bg-emerald-500 text-black font-bold shadow-sm'
-                    : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                {tier === 'compact' ? 'Compact (~1.5MB)' : tier === 'balanced' ? 'Balanced' : 'Full'}
-              </button>
-            ))}
-          </div>
-
-          {/* Page Format: ISO A4 vs Fit */}
-          <div className="flex items-center gap-1 border-l border-white/10 pl-2">
-            <span className="text-[10px] text-gray-400 font-semibold">Format:</span>
-            <button
-              onClick={() => {
-                triggerHaptic(10);
-                setPageFormat('a4');
-              }}
-              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all ${
-                pageFormat === 'a4'
-                  ? 'bg-emerald-500 text-black font-bold shadow-sm'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-              title="Standard ISO A4 (595x842 pt)"
-            >
-              A4
-            </button>
-            <button
-              onClick={() => {
-                triggerHaptic(10);
-                setPageFormat('fit');
-              }}
-              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all ${
-                pageFormat === 'fit'
-                  ? 'bg-emerald-500 text-black font-bold shadow-sm'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-              title="Fit to Sensor Dimensions"
-            >
-              Fit
-            </button>
-          </div>
-
-          {/* OCR Toggle */}
-          <button
-            onClick={() => {
-              triggerHaptic(10);
-              setEnableOcr(!enableOcr);
-            }}
-            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold transition-all ${
-              enableOcr ? 'bg-emerald-500 text-black shadow-sm' : 'bg-white/10 text-gray-400'
-            }`}
-          >
-            <Search className="w-3 h-3" />
-            <span>OCR {enableOcr ? 'ON' : 'OFF'}</span>
-          </button>
-        </div>
-
-        {/* Tier 2 Bar: Book Spine Dewarp & Page Reorder Controls */}
-        <div className="flex items-center justify-between gap-2 px-2.5 py-1 bg-white/5 rounded-xl border border-white/5 text-xs text-gray-300">
-          {/* Book Spine Flattening */}
-          <div className="flex items-center gap-1 text-emerald-400">
-            <BookA className="w-3.5 h-3.5" />
-            <span className="font-semibold text-[10px]">Spine:</span>
-          </div>
-
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setSpinePos(0.15)}
-              className={`px-1.5 py-0.5 rounded text-[10px] ${spinePos <= 0.25 ? 'bg-emerald-500 text-black font-bold' : 'text-gray-400'}`}
-            >
-              L
-            </button>
-            <button
-              onClick={() => setSpinePos(0.5)}
-              className={`px-1.5 py-0.5 rounded text-[10px] ${spinePos > 0.25 && spinePos < 0.75 ? 'bg-emerald-500 text-black font-bold' : 'text-gray-400'}`}
-            >
-              Center
-            </button>
-            <button
-              onClick={() => setSpinePos(0.85)}
-              className={`px-1.5 py-0.5 rounded text-[10px] ${spinePos >= 0.75 ? 'bg-emerald-500 text-black font-bold' : 'text-gray-400'}`}
-            >
-              R
-            </button>
-          </div>
-
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.05"
-            value={curvature}
-            onChange={(e) => setCurvature(parseFloat(e.target.value))}
-            className="w-16 accent-emerald-500 cursor-pointer"
-          />
-
-          {/* Page Reorder Buttons */}
-          {pages.length > 1 && (
-            <div className="flex items-center gap-1 border-l border-white/10 pl-2">
-              <span className="text-[10px] text-gray-400">Order:</span>
-              <button
-                disabled={safeIndex === 0}
-                onClick={() => {
-                  triggerHaptic(10);
-                  onMovePage(safeIndex, safeIndex - 1);
-                  setCurrentPageIndex(safeIndex - 1);
-                }}
-                className="px-1.5 py-0.5 rounded bg-white/10 text-white disabled:opacity-30 text-[10px] font-bold"
-                title="Move page left"
-              >
-                ◀
-              </button>
-              <button
-                disabled={safeIndex === pages.length - 1}
-                onClick={() => {
-                  triggerHaptic(10);
-                  onMovePage(safeIndex, safeIndex + 1);
-                  setCurrentPageIndex(safeIndex + 1);
-                }}
-                className="px-1.5 py-0.5 rounded bg-white/10 text-white disabled:opacity-30 text-[10px] font-bold"
-                title="Move page right"
-              >
-                ▶
-              </button>
-            </div>
-          )}
-        </div>
-
+      <div className="relative z-20 flex flex-col gap-2.5 px-5 pt-2 pb-10 glass-panel border-t-0 font-arabic">
         {/* Filter Pills */}
         <div className="flex items-center justify-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
           {(
             [
-              { id: 'magic', label: 'سحري ناصع', icon: Sparkles },
+              { id: 'magic', label: 'سحري ناصع (كام سكانر)', icon: Sparkles },
               { id: 'vibrant', label: 'ملون فائق', icon: Palette },
               { id: 'bw', label: 'أبيض وأسود' },
               { id: 'grayscale', label: 'رمادي' },
@@ -1236,7 +1095,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
               }}
               className={`relative flex-shrink-0 w-12 h-16 rounded-lg overflow-hidden border-2 transition-all ${
                 idx === safeIndex
-                  ? 'border-emerald-400 scale-105 shadow-md'
+                  ? 'border-emerald-400 scale-105 shadow-md ring-2 ring-emerald-500/40'
                   : 'border-white/20 opacity-60'
               }`}
             >
@@ -1260,60 +1119,67 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
             title="Scan another page"
           >
             <Plus className="w-5 h-5 mb-0.5" />
-            <span className="text-[9px] font-semibold">Add</span>
+            <span className="text-[9px] font-semibold">إضافة</span>
           </button>
         </div>
 
-        {/* Live Estimated PDF Size Badge */}
-        <div className="flex items-center justify-between px-1 text-[10px] text-gray-400 font-arabic">
-          <span>
-            تقدير حجم الملف: <span className="text-emerald-400 font-bold font-mono">{compressionPreset === 'compact' ? `${Math.round(pages.length * 35)} KB` : compressionPreset === 'balanced' ? `${(pages.length * 0.18).toFixed(1)} MB` : `${(pages.length * 0.85).toFixed(1)} MB`}</span>
-          </span>
-          <span className="text-gray-500">
-            {pages.length} {pages.length === 1 ? 'صفحة' : 'صفحات'} • جودة {compressionPreset === 'compact' ? 'مضغوطة' : compressionPreset === 'balanced' ? 'متوازنة' : 'فائقة'}
+        {/* Estimated Size & Advanced PDF Settings Shortcut */}
+        <div className="flex items-center justify-between px-1 text-xs text-gray-400">
+          <button
+            onClick={() => {
+              triggerHaptic(15);
+              setIsAdvancedOptionsOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.1] text-gray-200 text-xs font-semibold active:scale-95 transition-all shadow-sm"
+            title="خيارات حجم وضغط الـ PDF ومقاس A4 وثنية الكتب"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400" />
+            <span>إعدادات PDF المتقدمة (A4 • الحجم • الكتب)</span>
+          </button>
+
+          <span className="text-[11px] text-gray-400">
+            الحجم: <span className="text-emerald-400 font-bold font-mono">{compressionPreset === 'compact' ? `${Math.round(pages.length * 35)} KB` : compressionPreset === 'balanced' ? `${(pages.length * 0.18).toFixed(1)} MB` : `${(pages.length * 0.85).toFixed(1)} MB`}</span>
           </span>
         </div>
 
         {/* Action Row */}
-        <div className="flex items-center gap-2.5 mt-0.5">
-          <button
-            onClick={handleOpenInOtium}
-            disabled={pdfGenerating}
-            className="flex-1 flex items-center justify-center gap-2.5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs active:scale-95 transition-all emerald-glow shadow-lg disabled:opacity-50"
-            title="فتح المستند في قارئ أو تيوم"
-          >
-            <OtiumLogo size={18} className="text-black" />
-            <span className="font-sans font-black tracking-wider">فتح في أو تيوم / Open in Otium</span>
-          </button>
-
-          {/* Native Android Share Sheet */}
+        <div className="flex items-center gap-2 mt-0.5">
           <button
             onClick={handleSharePdf}
             disabled={pdfGenerating}
-            className="p-3 rounded-2xl glass-button text-gray-200 active:scale-95 transition-transform disabled:opacity-50"
-            title="Share Document via Android Share Sheet"
+            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs active:scale-95 transition-all emerald-glow shadow-lg disabled:opacity-50"
+            title="مشاركة وتصدير مستند الـ PDF"
           >
-            <Share2 className="w-5 h-5 text-emerald-400" />
+            <Share2 className="w-4 h-4 text-black" />
+            <span className="font-bold text-xs">مشاركة وتصدير PDF</span>
           </button>
 
-          {/* Export JPG */}
+          <button
+            onClick={handleOpenInOtium}
+            disabled={pdfGenerating}
+            className="flex items-center gap-1.5 px-3 py-3 rounded-2xl glass-button text-gray-200 hover:text-emerald-400 active:scale-95 transition-all text-xs font-bold disabled:opacity-50"
+            title="فتح المستند في قارئ أو تيوم"
+          >
+            <OtiumLogo size={16} className="text-emerald-400" />
+            <span className="hidden sm:inline">قارئ أو تيوم</span>
+          </button>
+
           <button
             onClick={handleDownloadJpg}
             disabled={pdfGenerating}
             className="p-3 rounded-2xl glass-button text-gray-200 active:scale-95 transition-transform disabled:opacity-50"
-            title="Export Current Page as JPG"
+            title="حفظ الصفحة كصورة JPG"
           >
-            <ImageIcon className="w-5 h-5 text-gray-300" />
+            <ImageIcon className="w-4 h-4 text-gray-300" />
           </button>
 
-          {/* Download PDF */}
           <button
             onClick={handleDownloadPdf}
             disabled={pdfGenerating}
-            className="p-3 rounded-2xl glass-button text-gray-200 active:scale-95 transition-transform disabled:opacity-50"
-            title="Download compiled PDF"
+            className="p-3 rounded-2xl glass-button text-gray-200 active:scale-95 transition-all disabled:opacity-50"
+            title="حفظ PDF في مجلد التنزيلات"
           >
-            <Download className="w-5 h-5 text-gray-300" />
+            <Download className="w-4 h-4 text-emerald-400" />
           </button>
         </div>
       </div>
@@ -1423,6 +1289,193 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
                 className="px-5 py-2 rounded-xl bg-emerald-500 text-black font-bold text-xs emerald-glow active:scale-95"
               >
                 Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Advanced PDF & Export Settings Modal */}
+      {isAdvancedOptionsOpen && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-200 select-none font-arabic">
+          <div className="w-full max-w-sm max-h-[90vh] bg-[#0c1017] border border-white/[0.12] rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-white/[0.08] otium-chrome">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="w-4 h-4 text-emerald-400" />
+                <span className="text-sm font-bold text-white">إعدادات PDF المتقدمة</span>
+              </div>
+              <button
+                onClick={() => setIsAdvancedOptionsOpen(false)}
+                className="p-1.5 rounded-full glass-button text-gray-400 active:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 overflow-y-auto space-y-4 text-right">
+              {/* 1. Quality & Size */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-gray-200 block">جودة وحجم الملف</label>
+                <div className="grid grid-cols-3 gap-1.5 p-1 rounded-2xl bg-white/[0.05] border border-white/[0.08]">
+                  {(
+                    [
+                      { id: 'compact', label: 'مضغوط', desc: '~35 KB' },
+                      { id: 'balanced', label: 'متوازن', desc: '~180 KB' },
+                      { id: 'max', label: 'فائق', desc: '~850 KB' },
+                    ] as const
+                  ).map((q) => (
+                    <button
+                      key={q.id}
+                      onClick={() => {
+                        triggerHaptic(10);
+                        setCompressionPreset(q.id);
+                      }}
+                      className={`py-2 px-1 rounded-xl text-center transition-all ${
+                        compressionPreset === q.id
+                          ? 'bg-emerald-500 text-black font-bold shadow-md'
+                          : 'text-gray-300 hover:text-white'
+                      }`}
+                    >
+                      <span className="text-xs block font-bold">{q.label}</span>
+                      <span className={`text-[9px] block ${compressionPreset === q.id ? 'text-black/80' : 'text-gray-400'}`}>
+                        {q.desc}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 2. Page Format (A4 vs Fit) */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-gray-200 block">أبعاد الورقة ومقاس الصفحة</label>
+                <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-white/[0.05] border border-white/[0.08]">
+                  <button
+                    onClick={() => {
+                      triggerHaptic(10);
+                      setPageFormat('a4');
+                    }}
+                    className={`py-2 px-2 rounded-xl text-xs font-bold transition-all ${
+                      pageFormat === 'a4'
+                        ? 'bg-emerald-500 text-black shadow-md'
+                        : 'text-gray-300 hover:text-white'
+                    }`}
+                  >
+                    معيار A4 الدولي (للطباعة)
+                  </button>
+                  <button
+                    onClick={() => {
+                      triggerHaptic(10);
+                      setPageFormat('fit');
+                    }}
+                    className={`py-2 px-2 rounded-xl text-xs font-bold transition-all ${
+                      pageFormat === 'fit'
+                        ? 'bg-emerald-500 text-black shadow-md'
+                        : 'text-gray-300 hover:text-white'
+                    }`}
+                  >
+                    أبعاد الصورة الأصلية (Fit)
+                  </button>
+                </div>
+              </div>
+
+              {/* 3. OCR Engine */}
+              <div className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.04] border border-white/[0.08]">
+                <button
+                  onClick={() => {
+                    triggerHaptic(15);
+                    setEnableOcr(!enableOcr);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    enableOcr
+                      ? 'bg-emerald-500 text-black shadow'
+                      : 'bg-white/[0.08] text-gray-400'
+                  }`}
+                >
+                  {enableOcr ? 'مفعل ✓' : 'معطل'}
+                </button>
+                <div>
+                  <span className="text-xs font-bold text-gray-200 block">التعرف على النصوص (OCR)</span>
+                  <span className="text-[10px] text-gray-400">استخراج النص للبحث والنسخ داخل الـ PDF</span>
+                </div>
+              </div>
+
+              {/* 4. Book Spine Dewarping */}
+              <div className="p-3 rounded-2xl bg-white/[0.04] border border-white/[0.08] space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-emerald-400 font-mono font-bold">
+                    {Math.round(curvature * 100)}%
+                  </span>
+                  <span className="text-xs font-bold text-gray-200">تسوية انحناء ثنية الكتب</span>
+                </div>
+                <div className="flex items-center gap-1.5 justify-center">
+                  <button
+                    onClick={() => setSpinePos(0.15)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
+                      spinePos <= 0.25 ? 'bg-emerald-500 text-black' : 'bg-white/[0.06] text-gray-400'
+                    }`}
+                  >
+                    صفحة يمنى
+                  </button>
+                  <button
+                    onClick={() => setSpinePos(0.5)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
+                      spinePos > 0.25 && spinePos < 0.75 ? 'bg-emerald-500 text-black' : 'bg-white/[0.06] text-gray-400'
+                    }`}
+                  >
+                    الوسط
+                  </button>
+                  <button
+                    onClick={() => setSpinePos(0.85)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
+                      spinePos >= 0.75 ? 'bg-emerald-500 text-black' : 'bg-white/[0.06] text-gray-400'
+                    }`}
+                  >
+                    صفحة يسرى
+                  </button>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={curvature}
+                  onChange={(e) => setCurvature(parseFloat(e.target.value))}
+                  className="w-full accent-emerald-500 cursor-pointer"
+                />
+              </div>
+
+              {/* 5. Watermark & Signature triggers */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  onClick={() => {
+                    setIsAdvancedOptionsOpen(false);
+                    setIsWatermarkOpen(true);
+                  }}
+                  className="py-2.5 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-xs font-semibold text-gray-200 flex items-center justify-center gap-1.5 border border-white/[0.08]"
+                >
+                  <Stamp className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>علامة مائية</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setIsAdvancedOptionsOpen(false);
+                    setIsSignatureOpen(true);
+                  }}
+                  className="py-2.5 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-xs font-semibold text-gray-200 flex items-center justify-center gap-1.5 border border-white/[0.08]"
+                >
+                  <PenTool className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>توقيع يدوي</span>
+                </button>
+              </div>
+
+              {/* Close / Done */}
+              <button
+                onClick={() => setIsAdvancedOptionsOpen(false)}
+                className="w-full py-2.5 rounded-xl bg-emerald-500 text-black font-bold text-xs active:scale-95 mt-2"
+              >
+                تم تطبيق الإعدادات
               </button>
             </div>
           </div>

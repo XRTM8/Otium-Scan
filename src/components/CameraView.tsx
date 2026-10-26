@@ -12,12 +12,15 @@ import {
   Volume2,
   VolumeX,
   RefreshCw,
+  Settings,
+  ArrowLeft,
 } from 'lucide-react';
 import { OtiumLogo } from './OtiumLogo';
 import { playShutterSound } from '../core/audio';
 import { mergeIdCardSidesToA4 } from '../core/idCard';
 import { calculateLaplacianSharpness, detectDocumentCorners } from '../core/edgeDetection';
 import { Point, Quad } from '../core/types';
+import { APP_CURRENT_VERSION } from '../core/updater';
 
 interface CameraViewProps {
   onCapture: (imageDataUrl: string, isBatchMode: boolean, detectedQuad?: Quad) => void;
@@ -25,6 +28,7 @@ interface CameraViewProps {
   lastThumbnail?: string;
   onFinishBatch: () => void;
   onOpenLibrary?: () => void;
+  onOpenSettings?: () => void;
 }
 
 export const CameraView: React.FC<CameraViewProps> = ({
@@ -33,6 +37,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
   lastThumbnail,
   onFinishBatch,
   onOpenLibrary,
+  onOpenSettings,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const viewfinderRef = useRef<HTMLDivElement | null>(null);
@@ -670,27 +675,39 @@ export const CameraView: React.FC<CameraViewProps> = ({
         </div>
       )}
 
-      {/* Top Header Bar — Clean 2-column layout */}
-      <div className="relative z-20 flex items-center justify-between px-5 pt-12 pb-3.5 otium-chrome border-b border-white/[0.08]">
-        {/* Brand Badge — Taps to Vault */}
-        <button
-          onClick={() => {
-            triggerHaptic(15);
-            onOpenLibrary?.();
-          }}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-full glass-button hover:border-emerald-500/40 active:scale-95 transition-all shadow-sm"
-          title="خزنة المستندات / Documents Vault"
-        >
-          <OtiumLogo size={20} className="text-emerald-400" />
-          <div className="flex items-baseline gap-1">
-            <span className="text-white text-xs font-black tracking-widest">OTIUM</span>
-            <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-wider px-1 py-0.2 rounded bg-emerald-500/10 border border-emerald-500/20">
-              SCAN
-            </span>
-          </div>
-        </button>
+      {/* Top Header Bar */}
+      <div className="relative z-20 flex items-center justify-between px-4 pt-12 pb-3.5 otium-chrome border-b border-white/[0.08] select-none">
+        {/* Left: Vault & Settings/Updates */}
+        <div className="flex items-center gap-2">
+          {/* Brand Logo & Vault Shortcut */}
+          <button
+            onClick={() => {
+              triggerHaptic(15);
+              onOpenLibrary?.();
+            }}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-full glass-button hover:border-emerald-500/40 active:scale-95 transition-all shadow-sm"
+            title="خزنة المستندات المحفوظة"
+          >
+            <OtiumLogo size={18} className="text-emerald-400" />
+            <span className="text-xs font-bold text-gray-200">الخزنة</span>
+          </button>
 
-        {/* Quick Controls: Flashlight, Mute, Switch Camera & Auto Toggle */}
+          {/* Prominent Settings & Updates Button */}
+          <button
+            onClick={() => {
+              triggerHaptic(15);
+              onOpenSettings?.();
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.1] active:scale-95 transition-all text-xs"
+            title="الإعدادات والتحقق من التحديثات"
+          >
+            <Settings className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="text-[11px] font-mono text-gray-300 font-bold">v{APP_CURRENT_VERSION}</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          </button>
+        </div>
+
+        {/* Right: Quick Controls */}
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => {
@@ -700,7 +717,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
             className={`p-2 rounded-full glass-button transition-colors ${
               isMuted ? 'text-yellow-400 border-yellow-500/40 bg-yellow-500/10' : 'text-gray-300'
             }`}
-            title={isMuted ? 'الصوت مكتوم / Muted' : 'صوت الالتقاط مفعل / Sound On'}
+            title={isMuted ? 'الصوت مكتوم' : 'صوت الالتقاط مفعل'}
           >
             {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </button>
@@ -737,7 +754,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
             className={`p-2 rounded-full glass-button transition-colors ${
               torchOn ? 'text-emerald-400 border-emerald-500/40 bg-emerald-500/10' : 'text-gray-300'
             }`}
-            title="فلاش الكاميرا / Flashlight"
+            title="فلاش الكاميرا"
           >
             {torchOn ? <Zap className="w-4 h-4 fill-emerald-400" /> : <ZapOff className="w-4 h-4" />}
           </button>
@@ -983,8 +1000,9 @@ export const CameraView: React.FC<CameraViewProps> = ({
                 {pagesCount}
               </div>
             </div>
-            <span className="text-[11px] font-bold text-emerald-400 font-arabic">
-              تجميع PDF ✓
+            <span className="text-[11px] font-bold text-emerald-400 font-arabic flex items-center gap-1">
+              <span>إنهاء ومراجعة</span>
+              <ArrowLeft className="w-3 h-3" />
             </span>
           </button>
         ) : (
