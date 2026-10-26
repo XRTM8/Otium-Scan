@@ -317,5 +317,22 @@ class MainActivity : TauriActivity() {
         }
       }
     }
+
+    /**
+     * Opens an external URL or APK download link in the system browser
+     */
+    @JavascriptInterface
+    fun openExternalUrl(url: String) {
+      runOnUiThread {
+        try {
+          val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          }
+          startActivity(intent)
+        } catch (e: Exception) {
+          Toast.makeText(this@MainActivity, "تعذر فتح الرابط: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+      }
+    }
   }
 }

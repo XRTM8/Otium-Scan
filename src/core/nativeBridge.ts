@@ -13,6 +13,7 @@ declare global {
       savePdfToDownloads?: (base64Data: string, filename: string) => boolean;
       saveFileToDownloads?: (base64Data: string, filename: string, mimeType: string) => boolean;
       openInOtiumReader?: (base64Data: string, filename: string) => void;
+      openExternalUrl?: (url: string) => void;
     };
   }
 }
@@ -153,6 +154,21 @@ export async function nativeOpenInOtium(blob: Blob, filename: string): Promise<v
 
   // Fallback to sharing
   await nativeSharePdf(blob, cleanFilename, 'فتح بواسطة');
+}
+
+/**
+ * Opens an external URL or APK download in the system browser or package installer
+ */
+export function nativeOpenUrl(url: string): void {
+  if (typeof window !== 'undefined' && window.OtiumNative && (window.OtiumNative as any).openExternalUrl) {
+    try {
+      (window.OtiumNative as any).openExternalUrl(url);
+      return;
+    } catch (e) {
+      console.warn('Native openExternalUrl failed:', e);
+    }
+  }
+  window.open(url, '_blank');
 }
 
 /**
