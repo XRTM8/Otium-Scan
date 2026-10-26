@@ -702,10 +702,17 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onO
                 {/* Error State */}
                 {updateError && (
                   <div className="space-y-3">
-                    <div className="flex items-start gap-2 text-rose-400 text-xs bg-rose-500/10 p-2.5 rounded-xl border border-rose-500/20">
+                    <div className="flex items-start gap-2 text-rose-400 text-xs bg-rose-500/10 p-2.5 rounded-xl border border-rose-500/20 leading-relaxed">
                       <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                       <span>{updateError}</span>
                     </div>
+                    <button
+                      onClick={() => nativeOpenUrl('https://github.com/XRTM8/Otium-Scan/releases/latest')}
+                      className="w-full py-2.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 active:scale-95 transition-all"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>تنزيل التحديث مباشرة عبر المتصفح</span>
+                    </button>
                     <button
                       onClick={handleCheckUpdate}
                       className="w-full py-2 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-white text-xs font-semibold flex items-center justify-center gap-2 border border-white/[0.1]"

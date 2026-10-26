@@ -14,6 +14,7 @@ declare global {
       saveFileToDownloads?: (base64Data: string, filename: string, mimeType: string) => boolean;
       openInOtiumReader?: (base64Data: string, filename: string) => void;
       openExternalUrl?: (url: string) => void;
+      fetchUrl?: (url: string) => string;
     };
   }
 }
@@ -169,6 +170,26 @@ export function nativeOpenUrl(url: string): void {
     }
   }
   window.open(url, '_blank');
+}
+
+/**
+ * Native HTTP GET to bypass webview CSP and CORS limitations
+ */
+export async function nativeFetchUrl(url: string): Promise<string | null> {
+  if (typeof window !== 'undefined' && window.OtiumNative?.fetchUrl) {
+    try {
+      const res = window.OtiumNative.fetchUrl(url);
+      if (res && !res.startsWith('ERROR:')) {
+        return res;
+      }
+      if (res && res.startsWith('ERROR:')) {
+        console.warn('Native fetchUrl returned error:', res);
+      }
+    } catch (e) {
+      console.warn('Native fetchUrl execution failed:', e);
+    }
+  }
+  return null;
 }
 
 /**

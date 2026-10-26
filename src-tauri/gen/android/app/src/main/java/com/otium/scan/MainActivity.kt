@@ -319,6 +319,27 @@ class MainActivity : TauriActivity() {
     }
 
     /**
+     * Native HTTP GET to bypass webview CSP/CORS restrictions for GitHub releases
+     */
+    @JavascriptInterface
+    fun fetchUrl(urlStr: String): String {
+      return try {
+        val url = java.net.URL(urlStr)
+        val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
+          requestMethod = "GET"
+          setRequestProperty("User-Agent", "Otium-Scan-Android")
+          setRequestProperty("Accept", "application/vnd.github.v3+json")
+          connectTimeout = 10000
+          readTimeout = 10000
+        }
+        val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
+        stream.bufferedReader().use { it.readText() }
+      } catch (e: Exception) {
+        "ERROR:" + (e.message ?: "Network error")
+      }
+    }
+
+    /**
      * Opens an external URL or APK download link in the system browser
      */
     @JavascriptInterface

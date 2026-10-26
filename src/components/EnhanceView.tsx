@@ -44,6 +44,7 @@ import {
   Palette,
   CopyCheck,
   SlidersHorizontal,
+  Send,
 } from 'lucide-react';
 
 interface EnhanceViewProps {
@@ -384,7 +385,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     }
   };
 
-  const generateCompiledPdf = async (): Promise<Blob> => {
+  const generateCompiledPdf = async (presetOverride?: PdfCompressionPreset): Promise<Blob> => {
     const pageInputs: PdfPageInput[] = [];
 
     for (let i = 0; i < pages.length; i++) {
@@ -424,7 +425,13 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     }
 
     setOcrStatus('');
-    return await createPdfFromCanvases(pageInputs, compressionPreset, pageFormat, watermarkText, watermarkStyle);
+    return await createPdfFromCanvases(
+      pageInputs,
+      presetOverride || compressionPreset,
+      pageFormat,
+      watermarkText,
+      watermarkStyle
+    );
   };
 
   const handleRotateCurrentPage = async () => {
@@ -466,6 +473,27 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     } finally {
       setPdfGenerating(false);
       setOcrStatus('');
+    }
+  };
+
+  const handleShareWhatsApp = async () => {
+    triggerHaptic(20);
+    setPdfGenerating(true);
+    setToastMsg('⏳ جاري تجهيز نسخة خفيفة للمشاركة...');
+    try {
+      // Force 'compact' compression for ultra-fast WhatsApp/messaging transfer (< 1.5MB)
+      const pdfBlob = await generateCompiledPdf('compact');
+      await persistToLibrary(pdfBlob);
+      const filename = `${docTitle.trim() || 'Otium_Scan'}_fast.pdf`;
+      await nativeSharePdf(pdfBlob, filename, docTitle.trim() || 'Otium Document');
+      setToastMsg('✓ تم فتح شاشة المشاركة');
+    } catch (e) {
+      console.warn('WhatsApp Quick Share failed:', e);
+      setToastMsg('تعذر إتمام المشاركة السريعة');
+    } finally {
+      setPdfGenerating(false);
+      setOcrStatus('');
+      setTimeout(() => setToastMsg(''), 2200);
     }
   };
 
@@ -1152,6 +1180,16 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
           >
             <Share2 className="w-4 h-4 text-black" />
             <span className="font-bold text-xs">مشاركة وتصدير PDF</span>
+          </button>
+
+          <button
+            onClick={handleShareWhatsApp}
+            disabled={pdfGenerating}
+            className="flex items-center gap-1.5 px-3 py-3 rounded-2xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 active:scale-95 transition-all text-xs font-bold disabled:opacity-50 shadow-sm"
+            title="مشاركة سريعة ومضغوطة للمحادثات والواتساب (< 1.5MB)"
+          >
+            <Send className="w-4 h-4 text-emerald-400" />
+            <span className="hidden sm:inline">إرسال سريع</span>
           </button>
 
           <button
