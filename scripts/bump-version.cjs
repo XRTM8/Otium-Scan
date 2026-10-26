@@ -1,6 +1,6 @@
 const fs = require('fs');
 
-const targetVersion = '1.0.1';
+const targetVersion = process.argv[2] || '1.0.2';
 
 // 1. package.json
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));

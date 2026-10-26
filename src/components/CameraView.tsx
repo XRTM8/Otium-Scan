@@ -54,9 +54,9 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const [autoCaptureEnabled, setAutoCaptureEnabled] = useState(false);
   const [cropMode, setCropMode] = useState<CropMode>(() => {
     try {
-      return (localStorage.getItem('otium_scan_crop_mode') as CropMode) || 'auto';
+      return (localStorage.getItem('otium_scan_crop_mode') as CropMode) || 'full';
     } catch {
-      return 'auto';
+      return 'full';
     }
   });
   const [viewfinderFit, setViewfinderFit] = useState<'contain' | 'cover'>(() => {

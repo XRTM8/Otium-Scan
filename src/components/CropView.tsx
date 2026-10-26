@@ -1,6 +1,6 @@
 import React, { useRef, useState, useCallback } from 'react';
 import { Point, Quad } from '../core/types';
-import { getDefaultQuad, warpPerspective, isQuadConvex } from '../core/geometry';
+import { getDefaultQuad, getFullFrameQuad, warpPerspective, isQuadConvex } from '../core/geometry';
 import { detectDocumentCorners } from '../core/edgeDetection';
 import { Check, RotateCcw, X, Wand2, RotateCw, Maximize2, Undo2, Redo2, FileText, CreditCard, Receipt } from 'lucide-react';
 
@@ -96,18 +96,14 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, initialQuad, onCon
     const { naturalWidth, naturalHeight } = imageRef.current;
     setImageSize({ width: naturalWidth, height: naturalHeight });
 
-    // Use passed initialQuad or run auto corner detection on first load
+    // Use passed initialQuad or default to safe full frame
     if (!hasInitializedRef.current) {
       hasInitializedRef.current = true;
       if (initialQuad && isQuadConvex(initialQuad)) {
         setQuad(initialQuad);
       } else {
-        try {
-          const detected = detectDocumentCorners(imageRef.current);
-          setQuad(detected);
-        } catch {
-          setQuad(getDefaultQuad(naturalWidth, naturalHeight));
-        }
+        // Safe full frame to guarantee zero accidental text cropping
+        setQuad(getFullFrameQuad(naturalWidth, naturalHeight, 0.005));
       }
     }
   };

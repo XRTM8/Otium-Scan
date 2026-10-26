@@ -46,6 +46,7 @@ import {
   SlidersHorizontal,
   Send,
   Printer,
+  MoreHorizontal,
 } from 'lucide-react';
 
 interface EnhanceViewProps {
@@ -71,8 +72,12 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
   onRotatePage,
   onEditCrop,
   onDuplicatePage,
+  onResetAll,
 }) => {
   const [currentPageIndex, setCurrentPageIndex] = useState<number>(0);
+  const [showCancelModal, setShowCancelModal] = useState<boolean>(false);
+  const [showDeletePageModal, setShowDeletePageModal] = useState<boolean>(false);
+  const [showMoreActions, setShowMoreActions] = useState<boolean>(false);
   const [activeFilter, setActiveFilter] = useState<FilterType>('magic');
   const [curvature, setCurvature] = useState<number>(0);
   const [spinePos, setSpinePos] = useState<number>(0.5);
@@ -571,16 +576,29 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
   return (
     <div className="relative w-full h-full bg-[#07090e] flex flex-col justify-between overflow-hidden select-none">
       {/* Top Bar */}
-      <div className="relative z-20 flex items-center justify-between px-5 pt-12 pb-3.5 otium-chrome border-b border-white/[0.08]">
-        <button
-          onClick={onBackToCamera}
-          className="p-2.5 rounded-full glass-button text-gray-300 active:text-white"
-          title="رجوع للكاميرا / Back"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </button>
+      <div className="relative z-20 flex items-center justify-between px-3 pt-12 pb-3 otium-chrome border-b border-white/[0.08]">
+        {/* Left: Back & Cancel All */}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={onBackToCamera}
+            className="p-2 rounded-full glass-button text-gray-300 active:text-white"
+            title="رجوع للكاميرا"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </button>
 
-        <div className="flex flex-col items-center max-w-[48%]">
+          <button
+            onClick={() => setShowCancelModal(true)}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/25 active:scale-95 transition-all text-[11px] font-bold"
+            title="إلغاء كافة الصور والعودة للرئيسية"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span className="font-arabic">إلغاء الكل</span>
+          </button>
+        </div>
+
+        {/* Center: Title & Page Count */}
+        <div className="flex flex-col items-center max-w-[40%]">
           {isEditingTitle ? (
             <input
               type="text"
@@ -591,34 +609,44 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
                 if (e.key === 'Enter') setIsEditingTitle(false);
               }}
               onChange={(e) => setDocTitle(e.target.value)}
-              className="text-xs bg-white/10 text-white px-2.5 py-1 rounded-lg border border-emerald-400 focus:outline-none text-center max-w-full font-bold"
+              className="text-xs bg-white/10 text-white px-2 py-0.5 rounded-lg border border-emerald-400 focus:outline-none text-center max-w-full font-bold"
             />
           ) : (
             <button
               onClick={() => setIsEditingTitle(true)}
-              className="flex items-center gap-1.5 text-sm font-bold tracking-wide text-white truncate max-w-full hover:text-emerald-400"
+              className="flex items-center gap-1 text-xs sm:text-sm font-bold tracking-wide text-white truncate max-w-full hover:text-emerald-400"
               title="تعديل اسم المستند"
             >
               <span className="truncate">{docTitle}</span>
-              <Edit3 className="w-3.5 h-3.5 text-emerald-400 opacity-80 shrink-0" />
+              <Edit3 className="w-3 h-3 text-emerald-400 opacity-80 shrink-0" />
             </button>
           )}
-          <span className="text-[11px] text-emerald-400 font-bold tracking-wider mt-0.5">
+          <span className="text-[10px] text-emerald-400 font-bold tracking-wider mt-0.5">
             صفحة {safeIndex + 1} من {pages.length}
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5">
-          {/* Privacy Redaction Brush */}
+        {/* Right: Quick Tools */}
+        <div className="flex items-center gap-1">
+          {/* Delete Current Page */}
+          <button
+            onClick={() => setShowDeletePageModal(true)}
+            className="p-1.5 rounded-full glass-button text-gray-300 hover:text-rose-400 active:scale-95 transition-colors"
+            title="حذف هذه الصفحة"
+          >
+            <Trash2 className="w-4 h-4 text-rose-400" />
+          </button>
+
+          {/* Privacy Redaction */}
           <button
             onClick={() => {
               triggerHaptic(15);
               setIsRedacting(!isRedacting);
             }}
-            className={`p-2 rounded-full glass-button transition-colors ${
+            className={`p-1.5 rounded-full glass-button transition-colors ${
               isRedacting ? 'text-emerald-400 border-emerald-500/50 bg-emerald-500/20' : 'text-gray-300 active:text-emerald-400'
             }`}
-            title="Redact / Censor Sensitive Data"
+            title="حجب نصوص حساسة"
           >
             <EyeOff className="w-4 h-4" />
           </button>
@@ -629,10 +657,10 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
               triggerHaptic(15);
               setIsGridView(!isGridView);
             }}
-            className={`p-2 rounded-full glass-button transition-colors ${
+            className={`p-1.5 rounded-full glass-button transition-colors ${
               isGridView ? 'text-emerald-400 border-emerald-500/50 bg-emerald-500/10' : 'text-gray-300 active:text-emerald-400'
             }`}
-            title="Grid Overview"
+            title="عرض شبكي"
           >
             <LayoutGrid className="w-4 h-4" />
           </button>
@@ -643,10 +671,10 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
               triggerHaptic(15);
               setIsWatermarkOpen(true);
             }}
-            className={`p-2 rounded-full glass-button transition-colors ${
+            className={`p-1.5 rounded-full glass-button transition-colors ${
               watermarkText ? 'text-emerald-400 border-emerald-500/50 bg-emerald-500/10' : 'text-gray-300 active:text-emerald-400'
             }`}
-            title="Add Security Watermark"
+            title="علامة مائية"
           >
             <Stamp className="w-4 h-4" />
           </button>
@@ -657,21 +685,12 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
               triggerHaptic(15);
               setIsSignatureOpen(true);
             }}
-            className={`p-2 rounded-full glass-button transition-colors ${
+            className={`p-1.5 rounded-full glass-button transition-colors ${
               signatures[safeIndex] ? 'text-emerald-400 border-emerald-500/50' : 'text-gray-300 active:text-emerald-400'
             }`}
-            title="Sign this document"
+            title="إضافة توقيع"
           >
             <PenTool className="w-4 h-4" />
-          </button>
-
-          <button
-            onClick={handleSharePdf}
-            disabled={pdfGenerating}
-            className="p-2 rounded-full glass-button text-gray-300 active:text-emerald-400 disabled:opacity-50"
-            title="Share PDF"
-          >
-            <Share2 className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -887,18 +906,19 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
             </div>
           )}
 
+          {/* Full-Frame Unobstructed Document Preview Stage */}
           <div
             style={{
               transform: `translateX(${swipeTranslateX}px) translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoomScale})`,
               transition: isSwiping || zoomScale > 1.05 ? 'none' : 'transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
             }}
-            className="relative max-w-full max-h-[54vh] rounded-xl overflow-hidden shadow-2xl border border-white/10 select-none will-change-transform"
+            className="relative w-full h-full max-h-[64vh] flex items-center justify-center select-none will-change-transform"
           >
             <img
               ref={previewImageRef}
               src={previewSource}
               alt={`Page ${safeIndex + 1}`}
-              className="w-full h-full object-contain block pointer-events-none"
+              className="max-w-full max-h-full object-contain rounded-xl shadow-2xl border border-white/10 pointer-events-none"
             />
 
             {/* Interactive Redaction Drawing Layer */}
@@ -1007,79 +1027,15 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
             )}
           </div>
 
-          {/* Floating Dedicated Page Actions Toolbar */}
-          <div className="absolute bottom-2 z-20 flex items-center gap-2 p-1.5 rounded-full bg-black/85 backdrop-blur-xl border border-white/15 shadow-2xl">
-            <button
-              onClick={() => {
-                triggerHaptic(15);
-                onEditCrop?.(safeIndex);
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-xs font-bold active:scale-95 transition-transform"
-              title="تعديل القص / Crop"
-            >
-              <Crop className="w-3.5 h-3.5" />
-              <span>تعديل القص</span>
-            </button>
-
-            <button
-              onClick={handleRotateCurrentPage}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full glass-button text-gray-200 text-xs font-bold active:scale-95 transition-transform"
-              title="تدوير 90°"
-            >
-              <RotateCw className="w-3.5 h-3.5 text-gray-300" />
-              <span>تدوير</span>
-            </button>
-
-            <button
-              onClick={() => {
-                triggerHaptic(15);
-                onRetakePage(safeIndex);
-              }}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-full glass-button text-gray-300 text-xs font-medium active:scale-95 transition-transform"
-              title="إعادة التقاط هذه الصفحة"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>إعادة التقاط</span>
-            </button>
-
-            {onDuplicatePage && (
-              <button
-                onClick={() => {
-                  triggerHaptic(15);
-                  onDuplicatePage(safeIndex);
-                }}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-full glass-button text-gray-300 hover:text-emerald-400 text-xs font-medium active:scale-95 transition-transform"
-                title="مضاعفة هذه الصفحة / Duplicate Page"
-              >
-                <CopyCheck className="w-3.5 h-3.5" />
-                <span>مضاعفة</span>
-              </button>
-            )}
-
-            {pages.length > 1 && (
-              <button
-                onClick={() => {
-                  triggerHaptic(15);
-                  onDeletePage(safeIndex);
-                  if (safeIndex > 0) setCurrentPageIndex(safeIndex - 1);
-                }}
-                className="p-1.5 rounded-full glass-button text-red-400 active:scale-90 transition-transform"
-                title="حذف هذه الصفحة"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
           {safeIndex > 0 && (
             <button
               onClick={() => {
                 triggerHaptic(10);
                 setCurrentPageIndex(safeIndex - 1);
               }}
-              className="absolute left-4 p-3 rounded-full glass-button text-white active:scale-90 shadow-xl"
+              className="absolute left-3 p-2.5 rounded-full glass-button text-white active:scale-90 shadow-xl z-20"
             >
-              <ChevronLeft className="w-6 h-6" />
+              <ChevronLeft className="w-5 h-5" />
             </button>
           )}
 
@@ -1089,18 +1045,70 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
                 triggerHaptic(10);
                 setCurrentPageIndex(safeIndex + 1);
               }}
-              className="absolute right-4 p-3 rounded-full glass-button text-white active:scale-90 shadow-xl"
+              className="absolute right-3 p-2.5 rounded-full glass-button text-white active:scale-90 shadow-xl z-20"
             >
-              <ChevronRight className="w-6 h-6" />
+              <ChevronRight className="w-5 h-5" />
             </button>
           )}
         </div>
       )}
 
-      {/* Bottom Controls: Tools, Reordering & Export */}
-      <div className="relative z-20 flex flex-col gap-2.5 px-5 pt-2 pb-10 glass-panel border-t-0 font-arabic">
-        {/* Filter Pills */}
-        <div className="flex items-center justify-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
+      {/* Bottom Controls Dock: Clean, Non-overlapping & Screen-fitted */}
+      <div className="relative z-20 flex flex-col gap-2 px-3 pt-2 pb-[max(0.75rem,calc(env(safe-area-inset-bottom,0px)+0.5rem))] glass-panel border-t border-white/[0.08] font-arabic shrink-0">
+        {/* Row 1: Integrated Page Editing Tools & Filter Strip (Scrollable) */}
+        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
+          {/* Quick Page Actions */}
+          <button
+            onClick={() => {
+              triggerHaptic(15);
+              onEditCrop?.(safeIndex);
+            }}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-bold active:scale-95 shrink-0"
+            title="تعديل القص / Crop"
+          >
+            <Crop className="w-3.5 h-3.5" />
+            <span>تعديل القص</span>
+          </button>
+
+          <button
+            onClick={handleRotateCurrentPage}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl glass-button text-gray-200 text-xs font-semibold active:scale-95 shrink-0"
+            title="تدوير 90°"
+          >
+            <RotateCw className="w-3.5 h-3.5" />
+            <span>تدوير</span>
+          </button>
+
+          <button
+            onClick={() => {
+              triggerHaptic(15);
+              onRetakePage(safeIndex);
+            }}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl glass-button text-gray-200 text-xs font-medium active:scale-95 shrink-0"
+            title="إعادة التقاط الصفحة"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>إعادة التقاط</span>
+          </button>
+
+          {onDuplicatePage && (
+            <button
+              onClick={() => {
+                triggerHaptic(15);
+                onDuplicatePage(safeIndex);
+              }}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl glass-button text-gray-200 text-xs font-medium active:scale-95 shrink-0"
+              title="مضاعفة هذه الصفحة"
+            >
+              <CopyCheck className="w-3.5 h-3.5" />
+              <span>مضاعفة</span>
+            </button>
+          )}
+
+          {/* Visual Divider */}
+          <div className="h-4 w-px bg-white/20 mx-1 shrink-0" />
+
+          {/* Filter Pills */}
           {(
             [
               { id: 'magic', label: 'ورق ناصع', icon: Sparkles },
@@ -1116,7 +1124,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
               <button
                 key={item.id}
                 onClick={() => handleFilterSelect(item.id)}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-all shrink-0 ${
                   isActive
                     ? 'bg-emerald-500 text-black font-semibold shadow-md ring-1 ring-emerald-300'
                     : 'glass-button text-gray-300'
@@ -1131,7 +1139,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
           {pages.length > 1 && (
             <button
               onClick={handleApplyFilterToAll}
-              className="text-[10px] text-emerald-400 font-semibold underline underline-offset-2 ml-1 active:opacity-60 whitespace-nowrap"
+              className="text-[10px] text-emerald-400 font-semibold underline underline-offset-2 ml-1 active:opacity-60 whitespace-nowrap shrink-0"
               title="تطبيق الفلتر على جميع الصفحات"
             >
               تطبيق على الكل
@@ -1139,53 +1147,55 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
           )}
         </div>
 
-        {/* Multi-page Thumbnail Strip */}
-        <div className="flex items-center gap-2.5 overflow-x-auto py-1 px-1 scrollbar-none">
-          {pages.map((p, idx) => (
+        {/* Row 2: Thumbnails Strip (if multi-page) */}
+        {pages.length > 1 && (
+          <div className="flex items-center gap-2 overflow-x-auto py-0.5 px-0.5 scrollbar-none">
+            {pages.map((p, idx) => (
+              <button
+                key={p.id}
+                onClick={() => {
+                  triggerHaptic(10);
+                  setCurrentPageIndex(idx);
+                }}
+                className={`relative flex-shrink-0 w-10 h-14 rounded-lg overflow-hidden border-2 transition-all ${
+                  idx === safeIndex
+                    ? 'border-emerald-400 scale-105 shadow-md ring-2 ring-emerald-500/40'
+                    : 'border-white/20 opacity-60'
+                }`}
+              >
+                <img
+                  src={p.thumbnailDataUrl}
+                  alt={`Thumb ${idx + 1}`}
+                  className="w-full h-full object-cover"
+                />
+                <span className="absolute bottom-0.5 right-0.5 bg-black/80 text-[8px] px-1 rounded text-white font-bold">
+                  {idx + 1}
+                </span>
+              </button>
+            ))}
+
             <button
-              key={p.id}
               onClick={() => {
-                triggerHaptic(10);
-                setCurrentPageIndex(idx);
+                triggerHaptic(15);
+                onAddMorePages();
               }}
-              className={`relative flex-shrink-0 w-12 h-16 rounded-lg overflow-hidden border-2 transition-all ${
-                idx === safeIndex
-                  ? 'border-emerald-400 scale-105 shadow-md ring-2 ring-emerald-500/40'
-                  : 'border-white/20 opacity-60'
-              }`}
+              className="flex-shrink-0 w-10 h-14 rounded-lg border-2 border-dashed border-emerald-500/50 flex flex-col items-center justify-center text-emerald-400 active:scale-95 glass-button"
+              title="مسح صفحة إضافية"
             >
-              <img
-                src={p.thumbnailDataUrl}
-                alt={`Thumb ${idx + 1}`}
-                className="w-full h-full object-cover"
-              />
-              <span className="absolute bottom-0.5 right-0.5 bg-black/80 text-[9px] px-1 rounded text-white font-bold">
-                {idx + 1}
-              </span>
+              <Plus className="w-4 h-4 mb-0.5" />
+              <span className="text-[8px] font-semibold">إضافة</span>
             </button>
-          ))}
+          </div>
+        )}
 
-          <button
-            onClick={() => {
-              triggerHaptic(15);
-              onAddMorePages();
-            }}
-            className="flex-shrink-0 w-12 h-16 rounded-lg border-2 border-dashed border-emerald-500/50 flex flex-col items-center justify-center text-emerald-400 active:scale-95 glass-button"
-            title="Scan another page"
-          >
-            <Plus className="w-5 h-5 mb-0.5" />
-            <span className="text-[9px] font-semibold">إضافة</span>
-          </button>
-        </div>
-
-        {/* Estimated Size & Advanced PDF Settings Shortcut */}
+        {/* Row 3: PDF Options & Estimated Size */}
         <div className="flex items-center justify-between px-1 text-xs text-gray-400 gap-2">
           <button
             onClick={() => {
               triggerHaptic(15);
               setIsAdvancedOptionsOpen(true);
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.1] text-gray-200 text-xs font-semibold active:scale-95 transition-all shadow-sm shrink-0"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.1] text-gray-200 text-xs font-semibold active:scale-95 transition-all shadow-sm shrink-0"
             title="خيارات حجم وضغط الـ PDF ومقاس A4 وثنية الكتب"
           >
             <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
@@ -1204,66 +1214,181 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
           </span>
         </div>
 
-        {/* Action Row */}
-        <div className="flex items-center gap-2 mt-0.5">
+        {/* Row 4: Primary Export & Companion Actions (Screen-fitted, Never overflows) */}
+        <div className="flex items-center gap-1.5 mt-0.5">
           <button
             onClick={handleSharePdf}
             disabled={pdfGenerating}
-            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs active:scale-95 transition-all emerald-glow shadow-lg disabled:opacity-50"
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs active:scale-95 transition-all shadow-lg disabled:opacity-50"
             title="مشاركة وتصدير مستند الـ PDF"
           >
-            <Share2 className="w-4 h-4 text-black" />
-            <span className="font-bold text-xs">مشاركة وتصدير PDF</span>
-          </button>
-
-          <button
-            onClick={handleShareWhatsApp}
-            disabled={pdfGenerating}
-            className="flex items-center gap-1.5 px-3 py-3 rounded-2xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 active:scale-95 transition-all text-xs font-bold disabled:opacity-50 shadow-sm"
-            title="مشاركة سريعة ومضغوطة للمحادثات والواتساب (< 1.5MB)"
-          >
-            <Send className="w-4 h-4 text-emerald-400" />
-            <span className="hidden sm:inline">إرسال سريع</span>
+            <Share2 className="w-4 h-4 text-black shrink-0" />
+            <span className="font-bold text-xs truncate">مشاركة وتصدير PDF</span>
           </button>
 
           <button
             onClick={handleOpenInOtium}
             disabled={pdfGenerating}
-            className="flex items-center gap-1.5 px-3 py-3 rounded-2xl glass-button text-gray-200 hover:text-emerald-400 active:scale-95 transition-all text-xs font-bold disabled:opacity-50"
+            className="flex items-center gap-1 px-3 py-2.5 rounded-xl glass-button text-gray-200 hover:text-emerald-400 active:scale-95 transition-all text-xs font-bold shrink-0 disabled:opacity-50"
             title="فتح المستند في قارئ أو تيوم"
           >
-            <OtiumLogo size={16} className="text-emerald-400" />
-            <span className="hidden sm:inline">قارئ أو تيوم</span>
+            <OtiumLogo size={15} className="text-emerald-400 shrink-0" />
+            <span className="text-xs">القارئ</span>
           </button>
 
           <button
             onClick={handleDownloadJpg}
             disabled={pdfGenerating}
-            className="p-3 rounded-2xl glass-button text-gray-200 active:scale-95 transition-transform disabled:opacity-50"
+            className="p-2.5 rounded-xl glass-button text-gray-200 active:scale-95 transition-transform shrink-0 disabled:opacity-50"
             title="حفظ الصفحة كصورة JPG"
           >
             <ImageIcon className="w-4 h-4 text-gray-300" />
           </button>
 
           <button
-            onClick={handleDownloadPdf}
-            disabled={pdfGenerating}
-            className="p-3 rounded-2xl glass-button text-gray-200 active:scale-95 transition-all disabled:opacity-50"
-            title="حفظ PDF في مجلد التنزيلات"
+            onClick={() => setShowMoreActions(true)}
+            className="p-2.5 rounded-xl glass-button text-gray-200 active:scale-95 transition-transform shrink-0"
+            title="المزيد من الخيارات (طباعة، واتساب، تنزيل)"
           >
-            <Download className="w-4 h-4 text-emerald-400" />
-          </button>
-
-          <button
-            onClick={handlePrintPdf}
-            disabled={pdfGenerating}
-            className="p-3 rounded-2xl glass-button text-gray-200 hover:text-emerald-400 active:scale-95 transition-all disabled:opacity-50"
-            title="طباعة المستند عبر طابعة"
-          >
-            <Printer className="w-4 h-4 text-gray-300 hover:text-emerald-400" />
+            <MoreHorizontal className="w-4 h-4 text-gray-300" />
           </button>
         </div>
       </div>
+
+      {/* Modal: Confirm Cancel All / Discard Entire Session */}
+      {showCancelModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-[#12151d] border border-white/10 rounded-3xl p-5 max-w-sm w-full text-center space-y-4 shadow-2xl">
+            <div className="w-12 h-12 rounded-full bg-rose-500/15 text-rose-400 border border-rose-500/30 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-base font-bold text-white font-arabic">حذف كافة الصور والعودة للرئيسية؟</h3>
+              <p className="text-xs text-gray-400 leading-relaxed font-arabic">
+                سيتم إلغاء جلسة المسح الحالية وإفراغ كافة الصفحات الملتقطة والرجوع لشاشة الكاميرا.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 pt-1 font-arabic">
+              <button
+                onClick={() => {
+                  triggerHaptic(20);
+                  setShowCancelModal(false);
+                  onResetAll();
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs active:scale-95 transition-transform shadow-lg shadow-rose-500/20"
+              >
+                نعم، حذف الكل
+              </button>
+              <button
+                onClick={() => setShowCancelModal(false)}
+                className="flex-1 py-2.5 rounded-xl glass-button text-gray-300 font-semibold text-xs active:scale-95 transition-transform"
+              >
+                تراجع
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Confirm Delete Current Page */}
+      {showDeletePageModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-[#12151d] border border-white/10 rounded-3xl p-5 max-w-sm w-full text-center space-y-4 shadow-2xl">
+            <div className="w-12 h-12 rounded-full bg-rose-500/15 text-rose-400 border border-rose-500/30 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-base font-bold text-white font-arabic">حذف هذه الصفحة؟</h3>
+              <p className="text-xs text-gray-400 leading-relaxed font-arabic">
+                {pages.length <= 1
+                  ? 'هذه هي الصفحة الوحيدة في الجلسة. حذفها سيعيدك إلى شاشة الكاميرا.'
+                  : `سيتم حذف الصفحة رقم ${safeIndex + 1} من المستند.`}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 pt-1 font-arabic">
+              <button
+                onClick={() => {
+                  triggerHaptic(20);
+                  setShowDeletePageModal(false);
+                  if (pages.length <= 1) {
+                    onResetAll();
+                  } else {
+                    onDeletePage(safeIndex);
+                    if (safeIndex > 0) setCurrentPageIndex(safeIndex - 1);
+                  }
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs active:scale-95 transition-transform shadow-lg shadow-rose-500/20"
+              >
+                نعم، حذف الصفحة
+              </button>
+              <button
+                onClick={() => setShowDeletePageModal(false)}
+                className="flex-1 py-2.5 rounded-xl glass-button text-gray-300 font-semibold text-xs active:scale-95 transition-transform"
+              >
+                تراجع
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bottom Sheet: More Actions (WhatsApp, Download PDF, Print) */}
+      {showMoreActions && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 backdrop-blur-sm animate-in fade-in"
+          onClick={() => setShowMoreActions(false)}
+        >
+          <div
+            className="bg-[#12151d] border-t border-white/15 rounded-t-3xl p-5 w-full max-w-md space-y-3 shadow-2xl animate-in slide-in-from-bottom-5 font-arabic"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-12 h-1.5 rounded-full bg-white/20 mx-auto mb-2" />
+            <h3 className="text-sm font-bold text-white text-center pb-2 border-b border-white/10">
+              خيارات التصدير والمشاركة
+            </h3>
+
+            <button
+              onClick={() => {
+                setShowMoreActions(false);
+                handleShareWhatsApp();
+              }}
+              className="w-full flex items-center gap-3 p-3 rounded-2xl glass-button text-white text-xs font-semibold hover:border-emerald-500/40"
+            >
+              <Send className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>إرسال سريع عبر الواتساب والمحادثات (&lt; 1.5MB)</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setShowMoreActions(false);
+                handleDownloadPdf();
+              }}
+              className="w-full flex items-center gap-3 p-3 rounded-2xl glass-button text-white text-xs font-semibold hover:border-emerald-500/40"
+            >
+              <Download className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>تنزيل وحفظ ملف PDF في الجهاز</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setShowMoreActions(false);
+                handlePrintPdf();
+              }}
+              className="w-full flex items-center gap-3 p-3 rounded-2xl glass-button text-white text-xs font-semibold hover:border-emerald-500/40"
+            >
+              <Printer className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>طباعة المستند عبر طابعة</span>
+            </button>
+
+            <button
+              onClick={() => setShowMoreActions(false)}
+              className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-gray-300 font-semibold text-xs mt-2"
+            >
+              إغلاق
+            </button>
+          </div>
+        </div>
+      )}
 
       <SignatureModal
         isOpen={isSignatureOpen}
