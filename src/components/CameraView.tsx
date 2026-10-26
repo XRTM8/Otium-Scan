@@ -564,6 +564,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
     const trackLoop = (timestamp: number) => {
       animationFrameId = requestAnimationFrame(trackLoop);
 
+      if (document.hidden) return;
       if (timestamp - lastSampleTime < sampleIntervalMs) return;
       lastSampleTime = timestamp;
 

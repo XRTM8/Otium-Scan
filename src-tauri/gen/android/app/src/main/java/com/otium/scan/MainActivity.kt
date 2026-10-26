@@ -18,6 +18,7 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResult
 import androidx.core.app.ActivityCompat
@@ -29,6 +30,7 @@ import java.io.File
 class MainActivity : TauriActivity() {
   private var filePickerCallback: ValueCallback<Array<Uri>>? = null
   private var pendingPermissionRequest: PermissionRequest? = null
+  private var activeWebView: WebView? = null
 
   companion object {
     private const val CAMERA_PERMISSION_REQUEST_CODE = 1001
@@ -44,6 +46,37 @@ class MainActivity : TauriActivity() {
     val controller = WindowInsetsControllerCompat(window, window.decorView)
     controller.isAppearanceLightStatusBars = false
     controller.isAppearanceLightNavigationBars = false
+
+    // Hardware Back Button dispatcher for seamless webview navigation
+    onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+      override fun handleOnBackPressed() {
+        val wv = activeWebView
+        if (wv != null) {
+          wv.evaluateJavascript(
+            """
+            (function() {
+              const event = new CustomEvent('otium:back', { cancelable: true });
+              window.dispatchEvent(event);
+              return event.defaultPrevented;
+            })();
+            """.trimIndent()
+          ) { preventedStr ->
+            runOnUiThread {
+              val isPrevented = preventedStr?.trim('"', ' ') == "true"
+              if (!isPrevented) {
+                isEnabled = false
+                onBackPressedDispatcher.onBackPressed()
+                isEnabled = true
+              }
+            }
+          }
+        } else {
+          isEnabled = false
+          onBackPressedDispatcher.onBackPressed()
+          isEnabled = true
+        }
+      }
+    })
 
     ensureCameraPermissions()
   }
@@ -81,6 +114,7 @@ class MainActivity : TauriActivity() {
 
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
+    activeWebView = webView
 
     // Hardware acceleration & performance settings for smooth camera and rendering
     webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)

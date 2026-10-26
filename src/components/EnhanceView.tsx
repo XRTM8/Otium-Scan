@@ -146,6 +146,9 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     let active = true;
     if (!currentPage) return;
 
+    // Instant 0ms thumbnail display for butter-smooth swiping
+    setFullResPreviewUrl(currentPage.thumbnailDataUrl);
+
     loadPageCanvasFromDisk(currentPage.id)
       .then((canvas) => {
         if (!active) return;
@@ -422,7 +425,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
       let words: import('../core/pdf').OcrWordToken[] = [];
       if (enableOcr) {
         setOcrStatus(`OCR scanning page ${i + 1} of ${pages.length}...`);
-        words = await performOcr(processed, 'eng');
+        words = await performOcr(processed, 'ara+eng');
       }
 
       pageInputs.push({

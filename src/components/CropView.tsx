@@ -519,7 +519,7 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, initialQuad, onCon
           <div
             style={{
               left: `${Math.max(68, Math.min(window.innerWidth - 68, pointerPos.x))}px`,
-              top: `${pointerPos.y < 170 ? pointerPos.y + 115 : pointerPos.y - 115}px`,
+              top: `${Math.max(68, Math.min(window.innerHeight - 68, pointerPos.y < 170 ? pointerPos.y + 115 : pointerPos.y - 115))}px`,
               transform: 'translate(-50%, -50%)',
             }}
             className="fixed z-50 w-28 h-28 rounded-full border-4 border-emerald-400 overflow-hidden shadow-2xl bg-black pointer-events-none ring-4 ring-black/70 animate-in fade-in zoom-in-95 duration-100"

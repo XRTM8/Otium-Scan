@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { CameraView } from './components/CameraView';
 import { CropView } from './components/CropView';
 import { EnhanceView } from './components/EnhanceView';
@@ -24,29 +24,67 @@ export const App: React.FC = () => {
   const [retakeTargetIndex, setRetakeTargetIndex] = useState<number | null>(null);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [exitToast, setExitToast] = useState(false);
+  const lastBackPressTimeRef = useRef(0);
 
-  // Hardware Back Button integration for Android
+  // Hardware Back Button & Gesture Navigation for Android & Web
   useEffect(() => {
-    const handlePopState = (e: PopStateEvent) => {
-      e.preventDefault();
+    const handleBackAction = (e: Event) => {
+      // 1. If Settings modal is open, close it
+      if (isSettingsOpen) {
+        e.preventDefault();
+        setIsSettingsOpen(false);
+        return;
+      }
+
+      // 2. If Library modal is open, close it
+      if (isLibraryOpen) {
+        e.preventDefault();
+        setIsLibraryOpen(false);
+        return;
+      }
+
+      // 3. If in CropView, cancel crop and return to review or camera
       if (step === 'crop') {
-        setStep(pages.length > 0 ? 'review' : 'camera');
-        setCurrentRawImage('');
-        setCurrentInitialQuad(null);
-        setRetakeTargetIndex(null);
-        window.history.pushState(null, '', window.location.href);
-      } else if (step === 'review') {
-        if (pages.length > 0) {
-          setStep('camera');
-          window.history.pushState(null, '', window.location.href);
+        e.preventDefault();
+        handleCropCancel();
+        return;
+      }
+
+      // 4. If in Review (EnhanceView), return to camera
+      if (step === 'review') {
+        e.preventDefault();
+        setStep('camera');
+        return;
+      }
+
+      // 5. If on root CameraView
+      if (step === 'camera') {
+        const now = Date.now();
+        if (now - lastBackPressTimeRef.current < 2000) {
+          // Double-tap threshold reached: let event bubble so Android can exit
+          return;
         }
+        e.preventDefault();
+        lastBackPressTimeRef.current = now;
+        setExitToast(true);
+        setTimeout(() => setExitToast(false), 2000);
       }
     };
 
-    window.history.pushState(null, '', window.location.href);
+    window.addEventListener('otium:back', handleBackAction);
+    const handlePopState = (e: PopStateEvent) => {
+      handleBackAction(e);
+      window.history.pushState(null, '', window.location.href);
+    };
     window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, [step, pages.length]);
+    window.history.pushState(null, '', window.location.href);
+
+    return () => {
+      window.removeEventListener('otium:back', handleBackAction);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [step, pages.length, isSettingsOpen, isLibraryOpen]);
 
   const handleCapture = (imageSrc: string, isBatchMode: boolean, detectedQuad?: Quad) => {
     // If retaking or in single mode, immediately open CropView
@@ -289,6 +327,12 @@ export const App: React.FC = () => {
         onClose={() => setIsSettingsOpen(false)}
         onOpenVault={() => setIsLibraryOpen(true)}
       />
+
+      {exitToast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-full bg-slate-900/95 border border-emerald-500/30 text-xs text-emerald-300 font-bold shadow-2xl pointer-events-none animate-in fade-in zoom-in-95 font-arabic">
+          {pages.length > 0 ? 'اضغط رجوع مرة أخرى لإلغاء الجلسة والخروج' : 'اضغط رجوع مرة أخرى للخروج من التطبيق'}
+        </div>
+      )}
     </main>
   );
 };

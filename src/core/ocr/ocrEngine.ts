@@ -1,11 +1,11 @@
 import { createWorker } from 'tesseract.js';
 import { OcrWordToken } from '../pdf';
 
-let workerPromise: ReturnType<typeof createWorker> | null = null;
+const workers = new Map<string, Promise<any>>();
 
-async function getWorker(lang: string = 'eng') {
-  if (!workerPromise) {
-    workerPromise = (async () => {
+async function getWorker(lang: string = 'ara+eng') {
+  if (!workers.has(lang)) {
+    const promise = (async () => {
       // Configure local cache persistence so language weights are saved to IndexedDB
       const worker = await createWorker(lang, 1, {
         cacheMethod: 'write',
@@ -14,8 +14,9 @@ async function getWorker(lang: string = 'eng') {
       });
       return worker;
     })();
+    workers.set(lang, promise);
   }
-  return workerPromise;
+  return workers.get(lang)!;
 }
 
 /**
@@ -24,12 +25,12 @@ async function getWorker(lang: string = 'eng') {
  */
 export async function performOcr(
   canvas: HTMLCanvasElement,
-  lang: string = 'eng',
-  timeoutMs: number = 6000
+  lang: string = 'ara+eng',
+  timeoutMs: number = 7000
 ): Promise<OcrWordToken[]> {
   // If user is completely offline and worker is uninitialized, avoid stalling export
   const effectiveTimeout =
-    typeof navigator !== 'undefined' && !navigator.onLine && !workerPromise
+    typeof navigator !== 'undefined' && !navigator.onLine && !workers.has(lang)
       ? 1500
       : timeoutMs;
 
@@ -75,9 +76,11 @@ export async function performOcr(
 }
 
 export async function terminateOcrWorker() {
-  if (workerPromise) {
-    const worker = await workerPromise;
-    await worker.terminate();
-    workerPromise = null;
+  for (const [, promise] of workers.entries()) {
+    try {
+      const worker = await promise;
+      await worker.terminate();
+    } catch {}
   }
+  workers.clear();
 }
