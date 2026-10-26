@@ -1,6 +1,6 @@
 [package]
 name = "otium-scan"
-version = "0.1.5"
+version = "0.1.6"
 description = "A private, distraction-free document scanner"
 authors = ["XRTM8"]
 edition = "2021"

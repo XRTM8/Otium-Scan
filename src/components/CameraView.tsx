@@ -188,33 +188,134 @@ export const CameraView: React.FC<CameraViewProps> = ({
       onCapture(dataUrl, isBatch);
     };
 
-    const captureFromVideo = () => {
-      if (videoRef.current && videoRef.current.videoWidth > 0) {
-        const video = videoRef.current;
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
-          processCapturedImage(dataUrl);
-          return true;
+    const checkCanvasNonBlack = (ctx: CanvasRenderingContext2D, w: number, h: number): boolean => {
+      try {
+        const pts = [
+          { x: Math.floor(w * 0.5), y: Math.floor(h * 0.5) },
+          { x: Math.floor(w * 0.25), y: Math.floor(h * 0.25) },
+          { x: Math.floor(w * 0.75), y: Math.floor(h * 0.25) },
+          { x: Math.floor(w * 0.25), y: Math.floor(h * 0.75) },
+          { x: Math.floor(w * 0.75), y: Math.floor(h * 0.75) },
+          { x: Math.floor(w * 0.5), y: Math.floor(h * 0.3) },
+          { x: Math.floor(w * 0.5), y: Math.floor(h * 0.7) },
+        ];
+        let total = 0;
+        for (const p of pts) {
+          const pixel = ctx.getImageData(p.x, p.y, 1, 1).data;
+          total += pixel[0] + pixel[1] + pixel[2];
+        }
+        const avg = total / (pts.length * 3);
+        return avg >= 5; // Valid non-black frame
+      } catch {
+        return true;
+      }
+    };
+
+    const tryGrabFrame = async (): Promise<string | null> => {
+      if (!stream) return null;
+      const track = stream.getVideoTracks()[0];
+      if (!track || track.readyState !== 'live') return null;
+
+      const ImageCaptureConstructor = (window as unknown as { ImageCapture?: new (track: MediaStreamTrack) => any }).ImageCapture;
+      if (typeof ImageCaptureConstructor === 'function') {
+        try {
+          const capturer = new ImageCaptureConstructor(track);
+          if (typeof capturer.grabFrame === 'function') {
+            const bitmap = await capturer.grabFrame();
+            if (bitmap && bitmap.width > 0 && bitmap.height > 0) {
+              const canvas = document.createElement('canvas');
+              canvas.width = bitmap.width;
+              canvas.height = bitmap.height;
+              const ctx = canvas.getContext('2d', { willReadFrequently: true });
+              if (ctx) {
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(bitmap, 0, 0);
+                if (checkCanvasNonBlack(ctx, canvas.width, canvas.height)) {
+                  return canvas.toDataURL('image/jpeg', 0.95);
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('ImageCapture.grabFrame fallback:', e);
         }
       }
-      return false;
+      return null;
+    };
+
+    const tryTakePhoto = async (): Promise<string | null> => {
+      if (!stream) return null;
+      const track = stream.getVideoTracks()[0];
+      if (!track || track.readyState !== 'live') return null;
+
+      const ImageCaptureConstructor = (window as unknown as { ImageCapture?: new (track: MediaStreamTrack) => any }).ImageCapture;
+      if (typeof ImageCaptureConstructor === 'function') {
+        try {
+          const capturer = new ImageCaptureConstructor(track);
+          if (typeof capturer.takePhoto === 'function') {
+            const blob: Blob = await capturer.takePhoto();
+            if (blob && blob.size > 2000) {
+              return await new Promise<string>((res, rej) => {
+                const reader = new FileReader();
+                reader.onload = () => res(reader.result as string);
+                reader.onerror = rej;
+                reader.readAsDataURL(blob);
+              });
+            }
+          }
+        } catch (e) {
+          console.warn('ImageCapture.takePhoto fallback:', e);
+        }
+      }
+      return null;
+    };
+
+    const tryVideoCanvas = async (): Promise<string | null> => {
+      const video = videoRef.current;
+      if (!video || video.videoWidth === 0 || video.videoHeight === 0) return null;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return null;
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      if (!checkCanvasNonBlack(ctx, canvas.width, canvas.height)) {
+        await new Promise((r) => requestAnimationFrame(r));
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      }
+
+      return canvas.toDataURL('image/jpeg', 0.95);
     };
 
     try {
-      if (!captureFromVideo()) {
+      let dataUrl = await tryGrabFrame();
+      if (!dataUrl) {
+        dataUrl = await tryTakePhoto();
+      }
+      if (!dataUrl) {
+        dataUrl = await tryVideoCanvas();
+      }
+
+      if (dataUrl) {
+        await processCapturedImage(dataUrl);
+      } else {
         fileInputRef.current?.click();
         setCapturing(false);
       }
-    } catch {
-      setCapturing(false);
+    } catch (err) {
+      console.warn('Capture error:', err);
       fileInputRef.current?.click();
+      setCapturing(false);
     }
-  }, [capturing, idCardStep, idFrontDataUrl, onCapture, pagesCount, scanMode]);
+  }, [capturing, idCardStep, idFrontDataUrl, onCapture, pagesCount, scanMode, stream]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;

@@ -16,13 +16,14 @@ type EdgeKey = 'top' | 'right' | 'bottom' | 'left';
 export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCancel }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const [currentSrc, setCurrentSrc] = useState<string>(imageSrc);
   const [quad, setQuad] = useState<Quad | null>(null);
   const [activeCorner, setActiveCorner] = useState<CornerKey | null>(null);
   const [activeEdge, setActiveEdge] = useState<EdgeKey | null>(null);
   const [edgeDragStart, setEdgeDragStart] = useState<{ client: Point; quad: Quad } | null>(null);
   const [pointerPos, setPointerPos] = useState<Point | null>(null);
   const [imageSize, setImageSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
-  const [rotation, setRotation] = useState<number>(0);
+  const hasInitializedRef = useRef(false);
 
   const triggerHaptic = useCallback((duration = 10) => {
     if ('vibrate' in navigator) {
@@ -37,12 +38,15 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
     const { naturalWidth, naturalHeight } = imageRef.current;
     setImageSize({ width: naturalWidth, height: naturalHeight });
 
-    // Run auto corner detection
-    try {
-      const detected = detectDocumentCorners(imageRef.current);
-      setQuad(detected);
-    } catch {
-      setQuad(getDefaultQuad(naturalWidth, naturalHeight));
+    // Run auto corner detection on first image load
+    if (!hasInitializedRef.current) {
+      hasInitializedRef.current = true;
+      try {
+        const detected = detectDocumentCorners(imageRef.current);
+        setQuad(detected);
+      } catch {
+        setQuad(getDefaultQuad(naturalWidth, naturalHeight));
+      }
     }
   };
 
@@ -207,29 +211,47 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
 
   const handleRotate = () => {
     triggerHaptic(15);
-    setRotation((r) => (r + 90) % 360);
+    if (!imageRef.current || imageSize.width === 0 || imageSize.height === 0) return;
+
+    // Create rotated canvas
+    const rotCanvas = document.createElement('canvas');
+    rotCanvas.width = imageSize.height;
+    rotCanvas.height = imageSize.width;
+    const ctx = rotCanvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, rotCanvas.width, rotCanvas.height);
+    ctx.translate(rotCanvas.width / 2, rotCanvas.height / 2);
+    ctx.rotate((90 * Math.PI) / 180);
+    ctx.drawImage(imageRef.current, -imageSize.width / 2, -imageSize.height / 2);
+
+    const rotatedDataUrl = rotCanvas.toDataURL('image/jpeg', 0.95);
+
+    const oldH = imageSize.height;
+    const rotPt = (p: Point): Point => ({
+      x: Math.round(oldH - p.y),
+      y: Math.round(p.x),
+    });
+
+    if (quad) {
+      setQuad({
+        topLeft: rotPt(quad.bottomLeft),
+        topRight: rotPt(quad.topLeft),
+        bottomRight: rotPt(quad.topRight),
+        bottomLeft: rotPt(quad.bottomRight),
+      });
+    }
+
+    setImageSize({ width: imageSize.height, height: imageSize.width });
+    setCurrentSrc(rotatedDataUrl);
   };
 
   const handleApply = () => {
     if (!imageRef.current || !quad) return;
     triggerHaptic(20);
 
-    let srcCanvas: HTMLCanvasElement | HTMLImageElement = imageRef.current;
-    if (rotation !== 0) {
-      const rotCanvas = document.createElement('canvas');
-      const is90or270 = rotation === 90 || rotation === 270;
-      rotCanvas.width = is90or270 ? imageSize.height : imageSize.width;
-      rotCanvas.height = is90or270 ? imageSize.width : imageSize.height;
-      const ctx = rotCanvas.getContext('2d');
-      if (ctx) {
-        ctx.translate(rotCanvas.width / 2, rotCanvas.height / 2);
-        ctx.rotate((rotation * Math.PI) / 180);
-        ctx.drawImage(imageRef.current, -imageSize.width / 2, -imageSize.height / 2);
-        srcCanvas = rotCanvas;
-      }
-    }
-
-    const warped = warpPerspective(srcCanvas, quad);
+    const warped = warpPerspective(imageRef.current, quad);
     onConfirm(warped, quad);
   };
 
@@ -340,11 +362,10 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
       <div className="relative flex-1 w-full h-full flex items-center justify-center p-3 overflow-hidden">
         <img
           ref={imageRef}
-          src={imageSrc}
+          src={currentSrc}
           alt="Scan target"
           onLoad={handleImageLoad}
-          style={{ transform: `rotate(${rotation}deg)` }}
-          className="max-w-full max-h-[68vh] object-contain rounded-lg shadow-2xl pointer-events-none transition-transform duration-200"
+          className="max-w-full max-h-[68vh] object-contain rounded-lg shadow-2xl pointer-events-none"
         />
 
         {/* SVG Quad Overlay */}
@@ -421,7 +442,7 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
               style={{
                 width: '100%',
                 height: '100%',
-                backgroundImage: `url(${imageSrc})`,
+                backgroundImage: `url(${currentSrc})`,
                 backgroundSize: `${imageSize.width * 2.5}px ${imageSize.height * 2.5}px`,
                 backgroundPosition: `-${loupeTargetPt.x * 2.5 - 56}px -${loupeTargetPt.y * 2.5 - 56}px`,
                 backgroundRepeat: 'no-repeat',

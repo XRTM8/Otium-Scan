@@ -12,6 +12,7 @@ import { saveDocumentToLibrary } from '../core/storage/documentLibrary';
 import { dewarpBookCurvature } from '../core/geometry';
 import { performOcr } from '../core/ocr/ocrEngine';
 import { detectBarcodesFromCanvas, DetectedBarcode } from '../core/barcode';
+import { nativeSharePdf, nativeSavePdf, nativeOpenInOtium, downloadBlob } from '../core/nativeBridge';
 import { SignatureModal } from './SignatureModal';
 import { OtiumLogo } from './OtiumLogo';
 import {
@@ -69,7 +70,7 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
   const [activeFilter, setActiveFilter] = useState<FilterType>('magic');
   const [curvature, setCurvature] = useState<number>(0);
   const [spinePos, setSpinePos] = useState<number>(0.5);
-  const [enableOcr, setEnableOcr] = useState<boolean>(true);
+  const [enableOcr, setEnableOcr] = useState<boolean>(false);
   const [compressionPreset, setCompressionPreset] = useState<PdfCompressionPreset>('balanced');
   const [pageFormat, setPageFormat] = useState<PdfPageFormat>('a4');
   const [isSignatureOpen, setIsSignatureOpen] = useState(false);
@@ -332,35 +333,14 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     try {
       const pdfBlob = await generateCompiledPdf();
       await persistToLibrary(pdfBlob);
-
       const filename = `${docTitle.trim() || 'Otium_Scan'}.pdf`;
-      const pdfFile = new File([pdfBlob], filename, { type: 'application/pdf' });
-
-      if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
-        await navigator.share({
-          files: [pdfFile],
-          title: docTitle.trim() || 'Otium Document',
-          text: `Scanned document (${pages.length} pages)`,
-        });
-      } else {
-        downloadBlob(pdfBlob, filename);
-      }
-    } catch {
-      const pdfBlob = await generateCompiledPdf();
-      downloadBlob(pdfBlob, `${docTitle.trim() || 'Otium_Scan'}.pdf`);
+      await nativeSharePdf(pdfBlob, filename, docTitle.trim() || 'Otium Document');
+    } catch (e) {
+      console.warn('Share PDF failed:', e);
     } finally {
       setPdfGenerating(false);
       setOcrStatus('');
     }
-  };
-
-  const downloadBlob = (blob: Blob, filename: string) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const handleDownloadPdf = async () => {
@@ -369,7 +349,12 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     try {
       const pdfBlob = await generateCompiledPdf();
       await persistToLibrary(pdfBlob);
-      downloadBlob(pdfBlob, `${docTitle.trim() || 'Otium_Scan'}.pdf`);
+      const filename = `${docTitle.trim() || 'Otium_Scan'}.pdf`;
+      await nativeSavePdf(pdfBlob, filename);
+      setToastMsg('✓ تم حفظ ملف الـ PDF');
+      setTimeout(() => setToastMsg(''), 2500);
+    } catch (e) {
+      console.warn('Download PDF failed:', e);
     } finally {
       setPdfGenerating(false);
       setOcrStatus('');
@@ -382,18 +367,10 @@ export const EnhanceView: React.FC<EnhanceViewProps> = ({
     try {
       const pdfBlob = await generateCompiledPdf();
       await persistToLibrary(pdfBlob);
-
       const filename = `${docTitle.trim() || 'Otium_Scan'}.pdf`;
-      const pdfFile = new File([pdfBlob], filename, { type: 'application/pdf' });
-
-      if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
-        await navigator.share({
-          files: [pdfFile],
-          title: docTitle.trim() || 'Otium Document',
-        });
-      } else {
-        downloadBlob(pdfBlob, filename);
-      }
+      await nativeOpenInOtium(pdfBlob, filename);
+    } catch (e) {
+      console.warn('Open in Otium Reader failed:', e);
     } finally {
       setPdfGenerating(false);
       setOcrStatus('');
