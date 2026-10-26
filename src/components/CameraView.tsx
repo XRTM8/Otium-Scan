@@ -45,12 +45,13 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const [autoCaptureProgress, setAutoCaptureProgress] = useState(0);
   const [liveQuad, setLiveQuad] = useState<Quad | null>(null);
   const [isSharp, setIsSharp] = useState<boolean>(true);
-  const [sharpnessScore, setSharpnessScore] = useState<number>(100);
+  const [_sharpnessScore, setSharpnessScore] = useState<number>(100);
   const [tilt, setTilt] = useState<{ x: number; y: number; isLevel: boolean }>({
     x: 0,
     y: 0,
-    isLevel: false,
+    isLevel: true, // default true so tilt doesn't block manual capture
   });
+  const [captureToast, setCaptureToast] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -60,7 +61,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
       const rawPitch = e.beta > 90 ? e.beta - 180 : e.beta;
       const pitch = Math.max(-20, Math.min(20, rawPitch));
 
-      const isLevel = Math.abs(roll) < 3.5 && Math.abs(pitch) < 3.5;
+      const isLevel = Math.abs(roll) < 8 && Math.abs(pitch) < 8; // More forgiving threshold
       setTilt({ x: roll, y: pitch, isLevel });
     };
 
@@ -216,12 +217,12 @@ export const CameraView: React.FC<CameraViewProps> = ({
         if (idCardStep === 'front') {
           setIdFrontDataUrl(dataUrl);
           setIdCardStep('back');
-          setIdStatusToast('Front captured! Now flip and scan Back side');
+          setIdStatusToast('✓ الوجه الأمامي — الآن التقط الوجه الخلفي');
           setTimeout(() => setIdStatusToast(''), 3000);
           setCapturing(false);
           return;
         } else if (idFrontDataUrl) {
-          setIdStatusToast('Merging ID card sides onto A4...');
+          setIdStatusToast('⏳ جاري دمج وجهي الهوية...');
           try {
             const [frontImg, backImg] = await Promise.all([
               new Promise<HTMLImageElement>((res, rej) => {
@@ -254,6 +255,8 @@ export const CameraView: React.FC<CameraViewProps> = ({
             setIdCardStep('front');
             setIdStatusToast('');
             setCapturing(false);
+            setCaptureToast('✓ تم دمج الهوية بنجاح!');
+            setTimeout(() => setCaptureToast(''), 2000);
             onCapture(mergedDataUrl, false);
             return;
           } catch (e) {
@@ -263,34 +266,13 @@ export const CameraView: React.FC<CameraViewProps> = ({
       }
 
       setCapturing(false);
+      setCaptureToast('✓ تم حفظ الصورة');
+      setTimeout(() => setCaptureToast(''), 1800);
       onCapture(dataUrl, scanMode === 'batch');
     };
 
-    try {
-      if (stream) {
-        const track = stream.getVideoTracks()[0];
-        if ('ImageCapture' in window) {
-          try {
-            const imageCapture = new (window as any).ImageCapture(track);
-            const blob: Blob = await imageCapture.takePhoto({
-              imageWidth: 4000,
-              imageHeight: 3000,
-            });
-
-            const reader = new FileReader();
-            reader.onload = () => {
-              if (typeof reader.result === 'string') {
-                processCapturedImage(reader.result);
-              }
-            };
-            reader.readAsDataURL(blob);
-            return;
-          } catch {
-            // fallback below
-          }
-        }
-      }
-
+    // Capture using canvas drawImage (most reliable across all Android devices)
+    const captureFromVideo = () => {
       if (videoRef.current && videoRef.current.videoWidth > 0) {
         const video = videoRef.current;
         const canvas = document.createElement('canvas');
@@ -301,20 +283,52 @@ export const CameraView: React.FC<CameraViewProps> = ({
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
           processCapturedImage(dataUrl);
-          return;
+          return true;
+        }
+      }
+      return false;
+    };
+
+    try {
+      // Try ImageCapture first (higher resolution), fall back to canvas
+      if (stream && 'ImageCapture' in window) {
+        try {
+          const track = stream.getVideoTracks()[0];
+          const imageCapture = new (window as any).ImageCapture(track);
+          const blob: Blob = await imageCapture.takePhoto();
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (typeof reader.result === 'string') {
+              processCapturedImage(reader.result);
+            } else {
+              // Fallback to canvas if FileReader fails
+              if (!captureFromVideo()) {
+                setCapturing(false);
+              }
+            }
+          };
+          reader.onerror = () => {
+            if (!captureFromVideo()) setCapturing(false);
+          };
+          reader.readAsDataURL(blob);
+          return; // processCapturedImage will call setCapturing(false)
+        } catch {
+          // ImageCapture failed — fall through to canvas
         }
       }
 
-      fileInputRef.current?.click();
+      if (!captureFromVideo()) {
+        fileInputRef.current?.click();
+        setCapturing(false);
+      }
     } catch {
-      fileInputRef.current?.click();
-    } finally {
       setCapturing(false);
+      fileInputRef.current?.click();
     }
   }, [capturing, idCardStep, idFrontDataUrl, onCapture, scanMode, stream]);
 
-  // Tri-Condition Hands-Free Auto-Capture Gate:
-  // 1. Phone is level (<3.5° roll/pitch)
+  // Tri-Condition Hands-Free Auto-Capture Gate (only when explicitly enabled):
+  // 1. Phone is roughly level (<8° roll/pitch)
   // 2. Camera focus is sharp (Laplacian variance >= 45)
   // 3. True document quad is locked in view
   const isAutoCaptureReady =
@@ -336,7 +350,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
           handleCapture();
           return 0;
         }
-        return prev + 15; // ~400ms countdown
+        return prev + 5; // Slower ~1s countdown — gives user time to react
       });
     }, 50);
 
@@ -379,6 +393,15 @@ export const CameraView: React.FC<CameraViewProps> = ({
     <div className="relative w-full h-full bg-[#07090e] flex flex-col justify-between overflow-hidden">
       {/* Visual Shutter Flash */}
       {flashAnimation && <div className="absolute inset-0 z-50 bg-white pointer-events-none animate-out fade-out duration-150" />}
+
+      {/* Capture Success Toast */}
+      {captureToast && (
+        <div className="absolute top-24 inset-x-0 flex justify-center z-40 pointer-events-none animate-in fade-in slide-in-from-top-2 duration-200">
+          <span className="px-5 py-2.5 rounded-2xl bg-emerald-500 text-black font-bold text-sm shadow-2xl border border-white/20">
+            {captureToast}
+          </span>
+        </div>
+      )}
 
       {/* Top Header Bar */}
       <div className="relative z-20 flex items-center justify-between px-5 pt-12 pb-3.5 otium-chrome border-b border-white/[0.08]">
@@ -595,21 +618,19 @@ export const CameraView: React.FC<CameraViewProps> = ({
               {scanMode === 'idcard' ? (
                 <span className="text-emerald-400 font-bold flex items-center gap-1.5">
                   <CreditCard className="w-3.5 h-3.5" />
-                  <span>ID Card: {idCardStep === 'front' ? 'Align FRONT Side' : 'Align BACK Side'}</span>
+                  <span>{idCardStep === 'front' ? 'ضع الوجه الأمامي للهوية' : 'ضع الوجه الخلفي للهوية'}</span>
                 </span>
               ) : !isSharp ? (
-                <span className="text-amber-400 font-semibold">Adjusting Focus ({sharpnessScore})...</span>
+                <span className="text-amber-400 font-semibold">⏳ ضبط التركيز...</span>
               ) : liveQuad ? (
                 <span className="text-emerald-400 font-semibold flex items-center gap-1">
                   <Eye className="w-3.5 h-3.5" />
-                  <span>Document Locked {tilt.isLevel ? '(Auto-snapping)' : '— Hold Level'}</span>
+                  <span>{autoCaptureEnabled && tilt.isLevel ? '✓ جاهز للالتقاط التلقائي' : '✓ تم تحديد المستند'}</span>
                 </span>
-              ) : tilt.isLevel ? (
-                <span className="text-emerald-400 font-semibold">Level — Align Document</span>
               ) : scanMode === 'batch' ? (
-                `Rapid Batch Mode — ${pagesCount} captured`
+                `وضع المتعدد — ${pagesCount} صفحة`
               ) : (
-                'Align document inside frame'
+                'وجّه الكاميرا نحو المستند'
               )}
             </span>
           </div>

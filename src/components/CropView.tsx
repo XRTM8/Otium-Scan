@@ -303,7 +303,7 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
         </button>
 
         <span className="text-xs font-bold tracking-wide text-gray-200">
-          تحديد أبعاد المستند / Crop Bounds
+          تحديد حدود المستند
         </span>
 
         <div className="flex items-center gap-1.5">
@@ -367,12 +367,12 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
                 style={{
                   transform: `translate3d(${clientPt.x}px, ${clientPt.y}px, 0px) translate(-50%, -50%)`,
                 }}
-                className={`fixed z-30 w-12 h-12 flex items-center justify-center cursor-pointer touch-none transition-transform ${
-                  isTargeted ? 'scale-125' : 'active:scale-125'
+                className={`fixed z-30 w-14 h-14 flex items-center justify-center cursor-pointer touch-none transition-transform ${
+                  isTargeted ? 'scale-130' : 'active:scale-125'
                 }`}
               >
-                <div className="w-5 h-5 rounded-full bg-emerald-400 border-2 border-white shadow-xl flex items-center justify-center ring-2 ring-black/40">
-                  <div className="w-1.5 h-1.5 rounded-full bg-black" />
+                <div className="w-7 h-7 rounded-full bg-emerald-400 border-3 border-white shadow-xl flex items-center justify-center ring-4 ring-emerald-500/30">
+                  <div className="w-2 h-2 rounded-full bg-black" />
                 </div>
               </div>
             );
@@ -438,18 +438,18 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, onConfirm, onCance
         )}
       </div>
 
-      {/* Bottom Confirm Bar */}
-      <div className="relative z-30 flex items-center justify-between px-8 pt-4 pb-12 glass-panel border-t-0">
-        <span className="text-xs text-emerald-400 font-medium">
-          Drag corners or edges to adjust
-        </span>
+      <div className="relative z-30 flex items-center justify-between px-5 pt-4 pb-10 glass-panel border-t-0">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xs text-emerald-400 font-bold">اسحب الزوايا للضبط</span>
+          <span className="text-[10px] text-gray-500">أو اضغط ✦ للكشف التلقائي</span>
+        </div>
 
         <button
           onClick={handleApply}
-          className="flex items-center gap-2 px-6 py-3 rounded-full bg-emerald-500 text-black font-semibold text-sm active:scale-95 transition-transform emerald-glow"
+          className="flex items-center gap-2 px-7 py-3.5 rounded-2xl bg-emerald-500 text-black font-black text-sm active:scale-95 transition-transform emerald-glow shadow-xl"
         >
-          <Check className="w-4 h-4 stroke-[3]" />
-          <span>Apply</span>
+          <Check className="w-5 h-5 stroke-[3]" />
+          <span>تطبيق</span>
         </button>
       </div>
     </div>

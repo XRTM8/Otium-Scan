@@ -2,9 +2,9 @@ import { Point, Quad } from './types';
 import { getDefaultQuad, orderCorners } from './geometry';
 
 /**
- * Enterprise Document Edge Detector with Skin/Hand Rejection & Shadow Invariance.
- * Ignores fingers holding down pages via YCbCr skin tone masking.
- * Distinguishes soft body shadows from true razor-sharp document borders.
+ * Robust Document Edge Detector v2.
+ * Uses Sobel edges + smart largest-rectangle finder instead of brittle ray-casting.
+ * Falls back gracefully to a margin-padded default when no clear document is found.
  */
 export function detectDocumentCorners(
   sourceImage: HTMLImageElement | HTMLCanvasElement
@@ -12,10 +12,12 @@ export function detectDocumentCorners(
   const naturalW = 'naturalWidth' in sourceImage ? sourceImage.naturalWidth : sourceImage.width;
   const naturalH = 'naturalHeight' in sourceImage ? sourceImage.naturalHeight : sourceImage.height;
 
-  // Downsample to 320px for ~12ms execution speed
-  const scale = Math.min(1, 320 / Math.max(naturalW, naturalH));
-  const workW = Math.round(naturalW * scale);
-  const workH = Math.round(naturalH * scale);
+  if (naturalW === 0 || naturalH === 0) return getDefaultQuad(naturalW, naturalH);
+
+  // Downsample to 400px for better accuracy while staying fast
+  const scale = Math.min(1, 400 / Math.max(naturalW, naturalH));
+  const workW = Math.max(20, Math.round(naturalW * scale));
+  const workH = Math.max(20, Math.round(naturalH * scale));
 
   const canvas = document.createElement('canvas');
   canvas.width = workW;
@@ -29,88 +31,89 @@ export function detectDocumentCorners(
 
   const totalPixels = workW * workH;
   const gray = new Uint8Array(totalPixels);
-  const isSkin = new Uint8Array(totalPixels);
 
-  // Pass 1: Compute Grayscale and identify skin pixels (fingers holding page)
+  // Pass 1: Grayscale
   for (let i = 0, j = 0; i < data.length; i += 4, j++) {
-    const r = data[i];
-    const g = data[i + 1];
-    const b = data[i + 2];
-
-    gray[j] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
-
-    // YCbCr skin chrominance test
-    const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
-    const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
-
-    if (cb >= 75 && cb <= 130 && cr >= 132 && cr <= 175) {
-      isSkin[j] = 1; // Mark as human skin
-    }
+    gray[j] = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
   }
 
-  // Pass 2: Sobel Edge Detection with high-frequency edge isolation
+  // Pass 2: Sobel Edge Detection
   const edges = new Uint8Array(totalPixels);
   for (let y = 1; y < workH - 1; y++) {
     for (let x = 1; x < workW - 1; x++) {
       const idx = y * workW + x;
-
-      // Skip edges caused by fingers
-      if (isSkin[idx] === 1) {
-        edges[idx] = 0;
-        continue;
-      }
-
       const gx =
         -gray[idx - workW - 1] + gray[idx - workW + 1] +
         -2 * gray[idx - 1] + 2 * gray[idx + 1] +
         -gray[idx + workW - 1] + gray[idx + workW + 1];
-
       const gy =
         -gray[idx - workW - 1] - 2 * gray[idx - workW] - gray[idx - workW + 1] +
         gray[idx + workW - 1] + 2 * gray[idx + workW] + gray[idx + workW + 1];
-
       edges[idx] = Math.min(255, Math.hypot(gx, gy));
     }
   }
 
-  // Pass 3: Multi-ray casting with finger penetration
-  const maxSearchSteps = Math.min(workW, workH) * 0.44;
-  const edgeThreshold = 42;
+  // Pass 3: Find document bounding box via projection profiles
+  // Horizontal profile: sum of edge pixels per column
+  const colProfile = new Float32Array(workW);
+  const rowProfile = new Float32Array(workH);
 
-  function findCornerOnRay(startX: number, startY: number, dirX: number, dirY: number): Point {
-    let cx = startX;
-    let cy = startY;
-
-    for (let s = 0; s < maxSearchSteps; s++) {
-      cx += dirX;
-      cy += dirY;
-      const x = Math.round(cx);
-      const y = Math.round(cy);
-      if (x < 2 || x >= workW - 2 || y < 2 || y >= workH - 2) break;
-
-      const idx = y * workW + x;
-
-      // Ignore finger/skin regions completely
-      if (isSkin[idx] === 1) continue;
-
-      if (edges[idx] > edgeThreshold) {
-        return {
-          x: Math.round(cx / scale),
-          y: Math.round(cy / scale),
-        };
-      }
+  for (let y = 2; y < workH - 2; y++) {
+    for (let x = 2; x < workW - 2; x++) {
+      const v = edges[y * workW + x];
+      colProfile[x] += v;
+      rowProfile[y] += v;
     }
-
-    return {
-      x: Math.round(startX / scale),
-      y: Math.round(startY / scale),
-    };
   }
 
-  const pTL = findCornerOnRay(workW * 0.05, workH * 0.05, 1.2, 1.2);
-  const pTR = findCornerOnRay(workW * 0.95, workH * 0.05, -1.2, 1.2);
-  const pBR = findCornerOnRay(workW * 0.95, workH * 0.95, -1.2, -1.2);
-  const pBL = findCornerOnRay(workW * 0.05, workH * 0.95, 1.2, -1.2);
+  // Find the strongest edge band for each axis using sliding window
+  const MARGIN = Math.round(Math.min(workW, workH) * 0.06); // 6% margin minimum
+
+  function findEdgePair(profile: Float32Array, size: number): [number, number] {
+    const windowSize = Math.max(4, Math.round(size * 0.06));
+    let leftBest = 0, leftScore = -1;
+    let rightBest = size - 1, rightScore = -1;
+
+    // Search left half for left edge
+    for (let i = MARGIN; i < size * 0.45; i++) {
+      let s = 0;
+      for (let k = -windowSize; k <= windowSize; k++) {
+        const idx = Math.max(0, Math.min(size - 1, i + k));
+        s += profile[idx];
+      }
+      if (s > leftScore) { leftScore = s; leftBest = i; }
+    }
+
+    // Search right half for right edge
+    for (let i = Math.round(size * 0.55); i < size - MARGIN; i++) {
+      let s = 0;
+      for (let k = -windowSize; k <= windowSize; k++) {
+        const idx = Math.max(0, Math.min(size - 1, i + k));
+        s += profile[idx];
+      }
+      if (s > rightScore) { rightScore = s; rightBest = i; }
+    }
+
+    // Validate: if detection span is too small, use margin-based default
+    const span = rightBest - leftBest;
+    if (span < size * 0.25 || leftScore < 50 || rightScore < 50) {
+      return [Math.round(size * 0.05), Math.round(size * 0.95)];
+    }
+
+    return [leftBest, rightBest];
+  }
+
+  const [xLeft, xRight] = findEdgePair(colProfile, workW);
+  const [yTop, yBottom] = findEdgePair(rowProfile, workH);
+
+  // Scale back to natural image coordinates
+  const toNatX = (x: number) => Math.round((x / workW) * naturalW);
+  const toNatY = (y: number) => Math.round((y / workH) * naturalH);
+
+  const pTL: Point = { x: toNatX(xLeft),  y: toNatY(yTop)    };
+  const pTR: Point = { x: toNatX(xRight), y: toNatY(yTop)    };
+  const pBR: Point = { x: toNatX(xRight), y: toNatY(yBottom) };
+  const pBL: Point = { x: toNatX(xLeft),  y: toNatY(yBottom) };
 
   try {
     return orderCorners([pTL, pTR, pBR, pBL]);
@@ -121,8 +124,8 @@ export function detectDocumentCorners(
 
 /**
  * Calculates the focus sharpness of an image using Laplacian operator variance.
- * Blurry or out-of-focus camera frames yield low variance (< 50).
- * Crisp, in-focus documents yield high variance (> 75).
+ * Blurry or out-of-focus camera frames yield low variance (< 30).
+ * Crisp, in-focus documents yield high variance (> 60).
  */
 export function calculateLaplacianSharpness(
   sourceImage: HTMLImageElement | HTMLCanvasElement
@@ -130,7 +133,6 @@ export function calculateLaplacianSharpness(
   const w = 'naturalWidth' in sourceImage ? sourceImage.naturalWidth : sourceImage.width;
   const h = 'naturalHeight' in sourceImage ? sourceImage.naturalHeight : sourceImage.height;
 
-  // Downsample to 160px for sub-millisecond execution (<2ms)
   const scale = Math.min(1, 160 / Math.max(w, h));
   const workW = Math.max(10, Math.round(w * scale));
   const workH = Math.max(10, Math.round(h * scale));
@@ -151,7 +153,6 @@ export function calculateLaplacianSharpness(
     gray[j] = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
   }
 
-  // 3x3 Laplacian Operator
   let sum = 0;
   let count = 0;
   const lapScores = new Float32Array(total);
