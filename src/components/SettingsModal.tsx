@@ -17,9 +17,11 @@ import {
   Smartphone,
   Crop,
   Maximize2,
+  FileText,
 } from 'lucide-react';
 import { OtiumLogo } from './OtiumLogo';
 import { CropMode } from '../core/types';
+import { isOcrLanguageCached, preloadOcrLanguage } from '../core/ocr/ocrEngine';
 import {
   checkForAppUpdates,
   UpdateCheckResult,
@@ -74,6 +76,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     try {
       localStorage.setItem('otium_scan_crop_mode', next);
     } catch {}
+  };
+
+  // Offline OCR Language Pack State
+  const [ocrCached, setOcrCached] = useState(() => isOcrLanguageCached('ara+eng'));
+  const [isDownloadingOcr, setIsDownloadingOcr] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState(0);
+
+  const handleDownloadOcr = async () => {
+    triggerHaptic(20);
+    setIsDownloadingOcr(true);
+    setOcrProgress(0);
+    try {
+      const ok = await preloadOcrLanguage('ara+eng', (prog) => {
+        setOcrProgress(prog);
+      });
+      if (ok) {
+        setOcrCached(true);
+        triggerHaptic(40);
+      }
+    } catch {
+    } finally {
+      setIsDownloadingOcr(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -382,6 +407,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="text-right">
                 <span className="text-xs font-semibold text-gray-200 block">الالتقاط التلقائي الذكي</span>
                 <span className="text-[10px] text-gray-400">التقاط الصفحة فور ثبات الهاتف واستقرار الحواف</span>
+              </div>
+            </div>
+          </div>
+
+          {/* SECTION 2.5: Offline OCR Language Pack */}
+          <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4 space-y-3">
+            <h3 className="text-xs font-bold text-white flex items-center justify-end gap-1.5">
+              <span>التعرف على النصوص (OCR) بدون إنترنت</span>
+              <FileText className="w-4 h-4 text-emerald-400" />
+            </h3>
+
+            <div className="flex items-center justify-between py-1">
+              {ocrCached ? (
+                <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-3 py-1.5 rounded-xl">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>محملة وجاهزة</span>
+                </div>
+              ) : isDownloadingOcr ? (
+                <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>{Math.round(ocrProgress * 100)}% جارٍ التنزيل...</span>
+                </div>
+              ) : (
+                <button
+                  onClick={handleDownloadOcr}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white/[0.06] hover:bg-emerald-500 hover:text-black text-gray-200 border border-white/[0.1] transition-all flex items-center gap-1.5 active:scale-95"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>تنزيل الحزمة (عربي + إنجليزي)</span>
+                </button>
+              )}
+
+              <div className="text-right">
+                <span className="text-xs font-semibold text-gray-200 block">حزمة الذكاء اللغوي</span>
+                <span className="text-[10px] text-gray-400">
+                  {ocrCached
+                    ? 'الحزمة مثبتة محلياً لإنشاء ملفات PDF قابلة للبحث دون اتصال'
+                    : 'قم بالتنزيل لتمكين استخراج النصوص والبحث داخل PDF أثناء انقطاع الشبكة'}
+                </span>
               </div>
             </div>
           </div>

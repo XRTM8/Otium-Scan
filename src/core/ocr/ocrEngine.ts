@@ -2,6 +2,38 @@ import { createWorker } from 'tesseract.js';
 import { OcrWordToken } from '../pdf';
 
 const workers = new Map<string, Promise<any>>();
+const OCR_CACHE_KEY_PREFIX = 'otium_ocr_cached_';
+
+export function isOcrLanguageCached(lang: string = 'ara+eng'): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  return localStorage.getItem(`${OCR_CACHE_KEY_PREFIX}${lang}`) === 'true';
+}
+
+export async function preloadOcrLanguage(
+  lang: string = 'ara+eng',
+  onProgress?: (progress: number, status: string) => void
+): Promise<boolean> {
+  try {
+    const worker = await createWorker(lang, 1, {
+      cacheMethod: 'write',
+      gzip: true,
+      logger: (m: any) => {
+        if (typeof m.progress === 'number') {
+          onProgress?.(m.progress, m.status || '');
+        }
+      },
+    });
+
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(`${OCR_CACHE_KEY_PREFIX}${lang}`, 'true');
+    }
+    workers.set(lang, Promise.resolve(worker));
+    return true;
+  } catch (err) {
+    console.warn('Failed to preload OCR language pack:', err);
+    return false;
+  }
+}
 
 async function getWorker(lang: string = 'ara+eng') {
   if (!workers.has(lang)) {
@@ -12,6 +44,9 @@ async function getWorker(lang: string = 'ara+eng') {
         gzip: true,
         logger: () => {}, // silent
       });
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(`${OCR_CACHE_KEY_PREFIX}${lang}`, 'true');
+      }
       return worker;
     })();
     workers.set(lang, promise);
@@ -28,7 +63,14 @@ export async function performOcr(
   lang: string = 'ara+eng',
   timeoutMs: number = 7000
 ): Promise<OcrWordToken[]> {
-  // If user is completely offline and worker is uninitialized, avoid stalling export
+  const isCached = isOcrLanguageCached(lang);
+  const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+
+  // Immediate offline fallback: avoid stalling PDF export if language weights aren't cached locally
+  if (!isOnline && !isCached && !workers.has(lang)) {
+    return [];
+  }
+
   const effectiveTimeout =
     typeof navigator !== 'undefined' && !navigator.onLine && !workers.has(lang)
       ? 1500
