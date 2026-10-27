@@ -53,7 +53,7 @@ export async function saveDocumentToLibrary(
     const store = tx.objectStore(STORE_NAME);
     const item: LibraryDocument = {
       ...doc,
-      createdAt: Date.now(),
+      createdAt: (doc as any).createdAt ?? Date.now(),
     };
     const req = store.put(item);
     req.onsuccess = () => resolve();
@@ -109,13 +109,15 @@ export async function exportVaultBackup(): Promise<Blob> {
 
   const serializedDocs = await Promise.all(
     docs.map(async (doc) => {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(doc.pdfBlob);
-      });
-      const pdfBase64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+      const buffer = await doc.pdfBlob.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      const chunkSize = 8192;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, i + chunkSize);
+        binary += String.fromCharCode(...chunk);
+      }
+      const pdfBase64 = btoa(binary);
 
       return {
         id: doc.id,
