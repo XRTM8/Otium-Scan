@@ -22,6 +22,16 @@ src-tauri/gen/schemas/
 *.swp
 *.swo
 
+# Android keystores and private signing credentials
+*.jks
+*.keystore
+*keystore*.txt
+*.key
+*.pem
+src-tauri/gen/android/.gradle
+src-tauri/gen/android/build
+src-tauri/gen/android/app/build
+
 # OS files
 .DS_Store
 Thumbs.db

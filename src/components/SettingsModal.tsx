@@ -160,9 +160,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <span>{detectDeviceArchitecture()}</span>
               </span>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-white">تحديث التطبيق والإصدار</span>
+                <span className="text-xs font-bold text-white">إصدار التطبيق</span>
                 <span className="text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                  v{APP_CURRENT_VERSION}
+                  أحدث إصدار: v{APP_CURRENT_VERSION}
                 </span>
               </div>
             </div>

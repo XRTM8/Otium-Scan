@@ -210,6 +210,15 @@ class MainActivity : TauriActivity() {
   }
 
   inner class OtiumNativeBridge {
+    private fun sanitizeFilename(filename: String, fallback: String): String {
+      val rawName = File(filename).name
+      val cleaned = rawName
+        .replace(Regex("[\\\\/:*?\"<>|\\u0000-\\u001f]"), "_")
+        .trim()
+        .take(120)
+      return cleaned.ifBlank { fallback }
+    }
+
     /**
      * Native Android Share Sheet for PDF and image files
      */
@@ -222,9 +231,10 @@ class MainActivity : TauriActivity() {
     fun shareFile(base64Data: String, filename: String, mimeType: String) {
       runOnUiThread {
         try {
+          val safeFilename = sanitizeFilename(filename, "scan.pdf")
           val cleanBase64 = if (base64Data.contains(",")) base64Data.substringAfter(",") else base64Data
           val bytes = android.util.Base64.decode(cleanBase64, android.util.Base64.DEFAULT)
-          val file = File(cacheDir, filename)
+          val file = File(cacheDir, safeFilename)
           file.writeBytes(bytes)
 
           val uri = FileProvider.getUriForFile(
@@ -234,9 +244,9 @@ class MainActivity : TauriActivity() {
           )
 
           val resolvedMime = when {
-            filename.endsWith(".jpg", true) || filename.endsWith(".jpeg", true) -> "image/jpeg"
-            filename.endsWith(".png", true) -> "image/png"
-            filename.endsWith(".pdf", true) -> "application/pdf"
+            safeFilename.endsWith(".jpg", true) || safeFilename.endsWith(".jpeg", true) -> "image/jpeg"
+            safeFilename.endsWith(".png", true) -> "image/png"
+            safeFilename.endsWith(".pdf", true) -> "application/pdf"
             mimeType.isNotEmpty() -> mimeType
             else -> "*/*"
           }
@@ -244,7 +254,7 @@ class MainActivity : TauriActivity() {
           val intent = Intent(Intent.ACTION_SEND).apply {
             type = resolvedMime
             putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, filename)
+            putExtra(Intent.EXTRA_SUBJECT, safeFilename)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
           }
 
@@ -266,14 +276,15 @@ class MainActivity : TauriActivity() {
     @JavascriptInterface
     fun saveFileToDownloads(base64Data: String, filename: String, mimeType: String): Boolean {
       try {
+        val isImage = filename.endsWith(".jpg", true) || filename.endsWith(".jpeg", true) || filename.endsWith(".png", true)
+        val safeFilename = sanitizeFilename(filename, if (isImage) "scan.jpg" else "scan.pdf")
         val cleanBase64 = if (base64Data.contains(",")) base64Data.substringAfter(",") else base64Data
         val bytes = android.util.Base64.decode(cleanBase64, android.util.Base64.DEFAULT)
 
-        val isImage = filename.endsWith(".jpg", true) || filename.endsWith(".jpeg", true) || filename.endsWith(".png", true)
         val resolvedMime = when {
-          filename.endsWith(".jpg", true) || filename.endsWith(".jpeg", true) -> "image/jpeg"
-          filename.endsWith(".png", true) -> "image/png"
-          filename.endsWith(".pdf", true) -> "application/pdf"
+          safeFilename.endsWith(".jpg", true) || safeFilename.endsWith(".jpeg", true) -> "image/jpeg"
+          safeFilename.endsWith(".png", true) -> "image/png"
+          safeFilename.endsWith(".pdf", true) -> "application/pdf"
           mimeType.isNotEmpty() -> mimeType
           else -> "application/octet-stream"
         }
@@ -282,7 +293,7 @@ class MainActivity : TauriActivity() {
           val collection = if (isImage) MediaStore.Images.Media.EXTERNAL_CONTENT_URI else MediaStore.Downloads.EXTERNAL_CONTENT_URI
           val relPath = if (isImage) Environment.DIRECTORY_PICTURES + "/OtiumScan" else Environment.DIRECTORY_DOWNLOADS
           val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+            put(MediaStore.MediaColumns.DISPLAY_NAME, safeFilename)
             put(MediaStore.MediaColumns.MIME_TYPE, resolvedMime)
             put(MediaStore.MediaColumns.RELATIVE_PATH, relPath)
           }
@@ -292,7 +303,7 @@ class MainActivity : TauriActivity() {
             resolver.openOutputStream(uri)?.use { it.write(bytes) }
             runOnUiThread {
               val loc = if (isImage) "معرض الصور (Pictures/OtiumScan)" else "مجلد التنزيلات"
-              Toast.makeText(this@MainActivity, "✓ تم حفظ $filename في $loc", Toast.LENGTH_LONG).show()
+              Toast.makeText(this@MainActivity, "✓ تم حفظ $safeFilename في $loc", Toast.LENGTH_LONG).show()
             }
             return true
           }
@@ -303,10 +314,10 @@ class MainActivity : TauriActivity() {
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
           }
           baseDir.mkdirs()
-          val file = File(baseDir, filename)
+          val file = File(baseDir, safeFilename)
           file.writeBytes(bytes)
           runOnUiThread {
-            Toast.makeText(this@MainActivity, "✓ تم حفظ $filename بنجاح", Toast.LENGTH_LONG).show()
+            Toast.makeText(this@MainActivity, "✓ تم حفظ $safeFilename بنجاح", Toast.LENGTH_LONG).show()
           }
           return true
         }
@@ -325,9 +336,10 @@ class MainActivity : TauriActivity() {
     fun openInOtiumReader(base64Data: String, filename: String) {
       runOnUiThread {
         try {
+          val safeFilename = sanitizeFilename(filename, "scan.pdf")
           val cleanBase64 = if (base64Data.contains(",")) base64Data.substringAfter(",") else base64Data
           val bytes = android.util.Base64.decode(cleanBase64, android.util.Base64.DEFAULT)
-          val file = File(cacheDir, filename)
+          val file = File(cacheDir, safeFilename)
           file.writeBytes(bytes)
 
           val uri = FileProvider.getUriForFile(
@@ -364,10 +376,11 @@ class MainActivity : TauriActivity() {
     fun printPdf(base64Data: String, filename: String) {
       runOnUiThread {
         try {
+          val cleanFilename = if (filename.endsWith(".pdf", true)) filename else "$filename.pdf"
+          val safeFilename = sanitizeFilename(cleanFilename, "scan.pdf")
           val cleanBase64 = if (base64Data.contains(",")) base64Data.substringAfter(",") else base64Data
           val bytes = android.util.Base64.decode(cleanBase64, android.util.Base64.DEFAULT)
-          val cleanFilename = if (filename.endsWith(".pdf")) filename else "$filename.pdf"
-          val file = File(cacheDir, cleanFilename)
+          val file = File(cacheDir, safeFilename)
           file.writeBytes(bytes)
 
           val uri = FileProvider.getUriForFile(
@@ -394,6 +407,15 @@ class MainActivity : TauriActivity() {
     @JavascriptInterface
     fun fetchUrl(urlStr: String): String {
       return try {
+        val allowedPrefixes = listOf(
+          "https://api.github.com/",
+          "https://raw.githubusercontent.com/",
+          "https://github.com/",
+          "https://objects.githubusercontent.com/"
+        )
+        if (allowedPrefixes.none { urlStr.startsWith(it) }) {
+          return "ERROR: URL domain is not permitted"
+        }
         val url = java.net.URL(urlStr)
         val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
           requestMethod = "GET"
@@ -414,15 +436,20 @@ class MainActivity : TauriActivity() {
      */
     @JavascriptInterface
     fun downloadAndInstallApk(apkUrl: String, filename: String) {
+      if (!apkUrl.startsWith("https://")) {
+        Toast.makeText(this@MainActivity, "تحميل غير آمن (يجب استخدام HTTPS)", Toast.LENGTH_SHORT).show()
+        return
+      }
       runOnUiThread {
         try {
-          val cleanFilename = if (filename.endsWith(".apk")) filename else "$filename.apk"
+          val cleanFilename = if (filename.endsWith(".apk", true)) filename else "$filename.apk"
+          val safeFilename = sanitizeFilename(cleanFilename, "update.apk")
           val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
           val request = DownloadManager.Request(Uri.parse(apkUrl)).apply {
             setTitle("تحديث Otium Scan")
-            setDescription("جاري تنزيل $cleanFilename وتجهيز التثبيت...")
+            setDescription("جاري تنزيل $safeFilename وتجهيز التثبيت...")
             setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, cleanFilename)
+            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, safeFilename)
             setMimeType("application/vnd.android.package-archive")
           }
 
@@ -438,7 +465,7 @@ class MainActivity : TauriActivity() {
                   unregisterReceiver(this)
                 } catch (_: Exception) {}
 
-                val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), cleanFilename)
+                val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), safeFilename)
                 if (file.exists()) {
                   val contentUri = FileProvider.getUriForFile(
                     this@MainActivity,
@@ -461,7 +488,7 @@ class MainActivity : TauriActivity() {
                       startActivity(permIntent)
                       Toast.makeText(this@MainActivity, "يرجى تفعيل خيار التثبيت من هذا المصدر لإتمام التحديث", Toast.LENGTH_LONG).show()
                     } else {
-                      Toast.makeText(this@MainActivity, "يرجى فتح مجلد التنزيلات لتثبيت $cleanFilename", Toast.LENGTH_LONG).show()
+                      Toast.makeText(this@MainActivity, "يرجى فتح مجلد التنزيلات لتثبيت $safeFilename", Toast.LENGTH_LONG).show()
                     }
                   }
                 }
@@ -470,12 +497,12 @@ class MainActivity : TauriActivity() {
           }
 
           if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED)
+            registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_NOT_EXPORTED)
           } else {
             registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
           }
         } catch (e: Exception) {
-          openExternalUrl(apkUrl)
+          Toast.makeText(this@MainActivity, "خطأ في بدء التنزيل: ${e.message}", Toast.LENGTH_SHORT).show()
         }
       }
     }

@@ -237,8 +237,8 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onO
     return (
       <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-2xl flex flex-col justify-between p-6 select-none animate-in fade-in duration-200">
         <div className="flex items-center justify-between pt-8">
-          <span className="text-xs text-gray-500 font-semibold tracking-wider uppercase">
-            {isSettingPin ? 'Security Configuration' : 'Encrypted Vault'}
+          <span className="text-xs text-gray-500 font-semibold tracking-wider uppercase font-arabic">
+            {isSettingPin ? 'إعداد رمز الأمان' : 'الخزنة المحمية برمز PIN'}
           </span>
           <button
             onClick={() => {
@@ -252,7 +252,7 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onO
         </div>
 
         {/* PIN Center Display */}
-        <div className="flex flex-col items-center justify-center text-center my-auto">
+        <div className="flex flex-col items-center justify-center text-center my-auto font-arabic">
           <div className="w-16 h-16 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mb-4 shadow-xl">
             {isSettingPin ? (
               <ShieldCheck className="w-8 h-8 text-emerald-400" />
@@ -262,12 +262,12 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onO
           </div>
 
           <h3 className="text-lg font-bold text-white mb-1">
-            {isSettingPin ? 'Set 4-Digit Vault PIN' : 'Enter PIN to Access Vault'}
+            {isSettingPin ? 'تعيين رمز PIN من 4 أرقام' : 'أدخل رمز PIN لفتح الخزنة'}
           </h3>
           <p className="text-xs text-gray-400 max-w-xs mb-8">
             {isSettingPin
-              ? 'Choose a 4-digit code to protect all documents stored in this device.'
-              : 'Your scanned contracts and documents are encrypted in local storage.'}
+              ? 'اختر رمزاً من 4 أرقام لقفل وحماية المستندات المحفوظة محلياً على هذا الجهاز.'
+              : 'يتم حماية وتأمين مستنداتك محلياً على جهازك برمز مرور لحفظ خصوصيتك.'}
           </p>
 
           {/* 4 Dots Indicator */}
@@ -622,7 +622,7 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onO
           title="معلومات التطبيق والتحقق من التحديثات"
         >
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span>v{APP_CURRENT_VERSION}</span>
+          <span>أحدث إصدار: v{APP_CURRENT_VERSION}</span>
         </button>
       </div>
 
@@ -665,7 +665,7 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onO
                 </p>
                 <div className="flex items-center gap-2 mt-2">
                   <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold">
-                    v{APP_CURRENT_VERSION}
+                    أحدث إصدار: v{APP_CURRENT_VERSION}
                   </span>
                   <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/[0.06] text-gray-400 border border-white/[0.08]">
                     {detectDeviceArchitecture()}

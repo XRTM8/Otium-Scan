@@ -106,19 +106,13 @@ jobs:
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
             printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore_dir/release.jks"
             cat > "$keystore_dir/keystore.properties" <<EOF
-          storeFile=release.jks
-          storePassword=$ANDROID_KEYSTORE_PASSWORD
-          keyAlias=$ANDROID_KEY_ALIAS
-          keyPassword=$ANDROID_KEY_PASSWORD
-          EOF
-          elif [ -f "src-tauri/otium-scan-release.jks" ]; then
-            cp src-tauri/otium-scan-release.jks "$keystore_dir/release.jks"
-            cat > "$keystore_dir/keystore.properties" <<EOF
-          storeFile=release.jks
-          storePassword=otiumscan123
-          keyAlias=otium_scan
-          keyPassword=otiumscan123
-          EOF
+storeFile=release.jks
+storePassword=$ANDROID_KEYSTORE_PASSWORD
+keyAlias=$ANDROID_KEY_ALIAS
+keyPassword=$ANDROID_KEY_PASSWORD
+EOF
+          else
+            echo "::warning ::No ANDROID_KEYSTORE_BASE64 secret provided. Proceeding with unsigned / debug keystore build."
           fi
 
       - name: Build Android APK (Per-ABI Split for minimal file size)
