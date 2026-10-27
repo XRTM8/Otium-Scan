@@ -200,19 +200,24 @@ export const CropView: React.FC<CropViewProps> = ({ imageSrc, initialQuad, onCon
       setPointerPos({ x: e.clientX, y: e.clientY });
       const imgCoord = clientToImageCoords(e.clientX, e.clientY);
 
-      const SNAP = 24;
-      if (Math.abs(imgCoord.x - 0) < SNAP) {
+      const rect = imageRef.current?.getBoundingClientRect();
+      const scaleX = rect && rect.width > 0 ? imageSize.width / rect.width : 1;
+      const scaleY = rect && rect.height > 0 ? imageSize.height / rect.height : 1;
+      const snapX = 22 * scaleX;
+      const snapY = 22 * scaleY;
+
+      if (Math.abs(imgCoord.x - 0) < snapX) {
         imgCoord.x = 0;
         triggerHaptic(8);
-      } else if (Math.abs(imgCoord.x - imageSize.width) < SNAP) {
+      } else if (Math.abs(imgCoord.x - imageSize.width) < snapX) {
         imgCoord.x = imageSize.width;
         triggerHaptic(8);
       }
 
-      if (Math.abs(imgCoord.y - 0) < SNAP) {
+      if (Math.abs(imgCoord.y - 0) < snapY) {
         imgCoord.y = 0;
         triggerHaptic(8);
-      } else if (Math.abs(imgCoord.y - imageSize.height) < SNAP) {
+      } else if (Math.abs(imgCoord.y - imageSize.height) < snapY) {
         imgCoord.y = imageSize.height;
         triggerHaptic(8);
       }

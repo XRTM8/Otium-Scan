@@ -333,6 +333,34 @@ export async function deleteStoredPage(id: string): Promise<void> {
 }
 
 /**
+ * Duplicates a stored page record in IndexedDB under a new page ID
+ */
+export async function duplicateStoredPage(sourceId: string, newId: string): Promise<void> {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const getReq = store.get(sourceId);
+    getReq.onsuccess = () => {
+      const record = getReq.result as StoredPageRecord | undefined;
+      if (!record) {
+        resolve();
+        return;
+      }
+      const duplicatedRecord: StoredPageRecord = {
+        ...record,
+        id: newId,
+        timestamp: Date.now(),
+      };
+      const putReq = store.put(duplicatedRecord);
+      putReq.onsuccess = () => resolve();
+      putReq.onerror = () => reject(putReq.error);
+    };
+    getReq.onerror = () => reject(getReq.error);
+  });
+}
+
+/**
  * Clears current scan session from disk cache
  */
 export async function clearScanSession(): Promise<void> {

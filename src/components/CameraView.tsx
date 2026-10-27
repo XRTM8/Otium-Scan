@@ -737,11 +737,12 @@ export const CameraView: React.FC<CameraViewProps> = ({
     if (!files || files.length === 0) return;
 
     // Support importing multiple photos from gallery at once
+    const isMulti = files.length > 1 || scanMode === 'batch';
     Array.from(files).forEach((file, index) => {
       const reader = new FileReader();
       reader.onload = () => {
         if (typeof reader.result === 'string') {
-          onCapture(reader.result, scanMode === 'batch');
+          onCapture(reader.result, isMulti);
           if (index === files.length - 1) {
             setCaptureToast(`✓ تم استيراد ${files.length} صورة من المعرض`);
             setTimeout(() => setCaptureToast(''), 2200);

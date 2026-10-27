@@ -10,6 +10,7 @@ import {
   storePageToDisk,
   clearScanSession,
   rotateStoredPage,
+  duplicateStoredPage,
   loadOriginalDataUrlFromDisk,
   deleteStoredPage,
   checkStorageQuota,
@@ -264,12 +265,18 @@ export const App: React.FC = () => {
     setStep('camera');
   };
 
-  const handleDuplicatePage = (index: number) => {
+  const handleDuplicatePage = async (index: number) => {
     const page = pages[index];
     if (!page) return;
+    const newId = `page_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    try {
+      await duplicateStoredPage(page.id, newId);
+    } catch (e) {
+      console.warn('Failed to duplicate stored page record:', e);
+    }
     const duplicated: ScannedPage = {
       ...page,
-      id: `page_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      id: newId,
       timestamp: Date.now(),
     };
     setPages((prev) => {
