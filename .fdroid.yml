@@ -1,0 +1,23 @@
+Categories:
+  - Office
+  - Photography
+License: GPL-3.0-or-later
+AuthorName: XRTM8
+AuthorWebSite: https://github.com/XRTM8
+WebSite: https://xrtm8.github.io/Otium/
+SourceCode: https://github.com/XRTM8/Otium-Scan
+IssueTracker: https://github.com/XRTM8/Otium-Scan/issues
+Changelog: https://github.com/XRTM8/Otium-Scan/releases
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 1.0.3
+CurrentVersionCode: 10003
+
+Builds:
+  - versionName: 1.0.3
+    versionCode: 10003
+    commit: v1.0.3
+    subdir: src-tauri/gen/android
+    gradle:
+      - assembleRelease

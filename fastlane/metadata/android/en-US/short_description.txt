@@ -1,0 +1,1 @@
+Private, offline document scanner with smart auto-edge detection and on-device Arabic/English OCR.

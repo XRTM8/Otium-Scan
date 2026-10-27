@@ -1,0 +1,9 @@
+Otium Scan is a high-precision, offline mobile scanner engineered for privacy and crisp document reproduction.
+
+Key Highlights:
+• Intelligent Auto-Edge Detection: Real-time paper contour detection and perspective rectification.
+• Professional B&W & Magic Filters: Enhance readability and purge shadows without image artifacts.
+• On-Device Arabic & English OCR: Generate 100% searchable PDF documents locally without an internet connection.
+• Identity Card Dual-Capture: Scan ID cards and driver licenses on a single consolidated A4 sheet.
+• Secure Document PIN Vault: Lock sensitive contracts and financial papers behind a local PIN code.
+• Zero Cloud & Ad-Free: No subscriptions, no telemetry, licensed under GNU GPL v3.
