@@ -105,12 +105,9 @@ jobs:
           mkdir -p "$keystore_dir"
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
             printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore_dir/release.jks"
-            cat > "$keystore_dir/keystore.properties" <<EOF
-storeFile=release.jks
-storePassword=$ANDROID_KEYSTORE_PASSWORD
-keyAlias=$ANDROID_KEY_ALIAS
-keyPassword=$ANDROID_KEY_PASSWORD
-EOF
+            printf 'storeFile=release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+              "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_ALIAS" "$ANDROID_KEY_PASSWORD" \
+              > "$keystore_dir/keystore.properties"
           else
             echo "::warning ::No ANDROID_KEYSTORE_BASE64 secret provided. Proceeding with unsigned / debug keystore build."
           fi
