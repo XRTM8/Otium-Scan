@@ -34,30 +34,47 @@ export async function createPdfFromCanvases(
 
   const offsets: number[] = [];
 
-  // Convert canvases to optimized JPEG bytes directly via ArrayBuffer
-  const imageSpecs = await Promise.all(
-    pages.map(async ({ canvas, words }) => {
-      const { optCanvas, quality } = getOptimizedCanvas(canvas, compressionPreset);
+  // Convert canvases to optimized JPEG bytes in controlled batches to avoid mobile OOM crashes
+  const BATCH_SIZE = 2;
+  const imageSpecs: {
+    width: number;
+    height: number;
+    bytes: Uint8Array;
+    words: OcrWordToken[];
+  }[] = [];
 
-      // Render high-fidelity Unicode/Arabic watermark directly onto canvas pixels
-      if (watermarkText && watermarkText.trim().length > 0) {
-        applyCanvasWatermark(optCanvas, watermarkText.trim(), watermarkStyle);
-      }
+  for (let i = 0; i < pages.length; i += BATCH_SIZE) {
+    const chunk = pages.slice(i, i + BATCH_SIZE);
+    const chunkResults = await Promise.all(
+      chunk.map(async ({ canvas, words }) => {
+        const { optCanvas, quality } = getOptimizedCanvas(canvas, compressionPreset);
 
-      const blob = await new Promise<Blob>((res) =>
-        optCanvas.toBlob((b) => res(b || new Blob()), 'image/jpeg', quality)
-      );
-      const buffer = await blob.arrayBuffer();
-      const bytes = new Uint8Array(buffer);
+        // Render high-fidelity Unicode/Arabic watermark directly onto canvas pixels
+        if (watermarkText && watermarkText.trim().length > 0) {
+          applyCanvasWatermark(optCanvas, watermarkText.trim(), watermarkStyle);
+        }
 
-      return {
-        width: optCanvas.width,
-        height: optCanvas.height,
-        bytes,
-        words: words || [],
-      };
-    })
-  );
+        const blob = await new Promise<Blob>((res) =>
+          optCanvas.toBlob((b) => res(b || new Blob()), 'image/jpeg', quality)
+        );
+        const buffer = await blob.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        const result = {
+          width: optCanvas.width,
+          height: optCanvas.height,
+          bytes,
+          words: words || [],
+        };
+
+        // Promptly release internal canvas backing store memory
+        optCanvas.width = 0;
+        optCanvas.height = 0;
+
+        return result;
+      })
+    );
+    imageSpecs.push(...chunkResults);
+  }
 
   const catalogIndex = 1;
   const pagesContainerIndex = 2;
