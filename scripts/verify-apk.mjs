@@ -24,7 +24,7 @@
  * Requires the Android SDK build-tools (apksigner, aapt2, zipalign) and
  * ANDROID_HOME / ANDROID_SDK_ROOT, or the tools on PATH.
  */
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -110,29 +110,18 @@ function findTool(baseName) {
 
 function runTool(tool, args) {
   const isBatch = process.platform === 'win32' && tool.toLowerCase().endsWith('.bat');
-  const common = {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    maxBuffer: 32 * 1024 * 1024
-  };
+  const common = { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 };
 
-  try {
-    // A .bat wrapper must go through the shell. Passing a fully quoted command
-    // string (instead of args + shell) avoids Node's DEP0190 warning.
-    const stdout = isBatch
-      ? execFileSync([tool, ...args].map((value) => `"${value}"`).join(' '), {
-          ...common,
-          shell: true
-        })
-      : execFileSync(tool, args, common);
-    return { ok: true, out: stdout, code: 0 };
-  } catch (error) {
-    return {
-      ok: false,
-      out: `${error.stdout || ''}${error.stderr || ''}`,
-      code: error.status ?? 1
-    };
-  }
+  // A .bat wrapper must go through the shell. Passing a fully quoted command
+  // string (instead of args + shell) avoids Node's DEP0190 warning.
+  const result = isBatch
+    ? spawnSync([tool, ...args].map((value) => `"${value}"`).join(' '), { ...common, shell: true })
+    : spawnSync(tool, args, common);
+
+  // apksigner splits its report between stdout and stderr depending on the
+  // build-tools version and platform, so always read both.
+  const out = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+  return { ok: result.status === 0, out, code: result.status ?? 1 };
 }
 
 const apksigner = findTool('apksigner');
@@ -167,12 +156,18 @@ function verifyOne(file) {
     problems.push('no v2/v3 signature scheme present');
   }
 
-  const cert = /Signer #1 certificate SHA-256 digest:\s*([0-9a-f]+)/i.exec(signed.out)?.[1] ?? null;
+  const certToken = /Signer #1 certificate SHA-256 digest:\s*(\S+)/i.exec(signed.out)?.[1] ?? null;
+  const cert = certToken
+    ? normalizeFingerprint(certToken)
+    : (/\b([0-9a-f]{64})\b/i.exec(signed.out)?.[1]?.toLowerCase() ?? null);
   facts.cert = cert;
-  if (cert && options.expectCert && normalizeFingerprint(cert) !== normalizeFingerprint(options.expectCert)) {
-    problems.push(`signing key mismatch: expected ${normalizeFingerprint(options.expectCert)}, got ${normalizeFingerprint(cert)}`);
+  if (cert && options.expectCert && cert !== normalizeFingerprint(options.expectCert)) {
+    problems.push(`signing key mismatch: expected ${normalizeFingerprint(options.expectCert)}, got ${cert}`);
   }
-  if (!cert && signed.ok) problems.push('could not read signer certificate');
+  if (!cert && signed.ok) {
+    problems.push('could not read signer certificate');
+    facts.rawVerify = signed.out.split(/\r?\n/).filter(Boolean).slice(0, 14).join('\n');
+  }
 
   const badging = runTool(aapt2, ['dump', 'badging', file]);
   const line = badging.out;
@@ -229,6 +224,10 @@ for (const result of results) {
       `cert=${facts.cert ? normalizeFingerprint(facts.cert).slice(0, 16) + '…' : 'none'}`
   );
   for (const problem of result.problems) console.log(`      - ${problem}`);
+  if (facts.rawVerify) {
+    console.log('      apksigner said:');
+    for (const line of facts.rawVerify.split('\n')) console.log(`      | ${line}`);
+  }
 }
 
 if (failed) {
