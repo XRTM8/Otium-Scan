@@ -115,14 +115,30 @@ jobs:
           set -euo pipefail
           keystore_dir="src-tauri/gen/android/app"
           mkdir -p "$keystore_dir"
-          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
-            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore_dir/release.jks"
-            printf 'storeFile=release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
-              "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_ALIAS" "$ANDROID_KEY_PASSWORD" \
-              > "$keystore_dir/keystore.properties"
-          else
-            echo "::warning ::No ANDROID_KEYSTORE_BASE64 secret provided. Proceeding with unsigned / debug keystore build."
+
+          # Never fall back to an unsigned build. An unsigned APK is not
+          # installable on any device, and publishing one silently is worse
+          # than failing the release.
+          if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+            echo "::error ::ANDROID_KEYSTORE_BASE64 is missing. Refusing to build an unsigned release APK."
+            exit 1
           fi
+          if [ -z "${ANDROID_KEYSTORE_PASSWORD:-}" ] || [ -z "${ANDROID_KEY_ALIAS:-}" ]; then
+            echo "::error ::ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS are missing."
+            exit 1
+          fi
+
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore_dir/release.jks"
+          printf 'storeFile=release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_ALIAS" "$ANDROID_KEY_PASSWORD" \
+            > "$keystore_dir/keystore.properties"
+
+          # Prove the keystore is readable and the alias exists before building.
+          keytool -list \
+            -keystore "$keystore_dir/release.jks" \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" > /dev/null
+          echo "Keystore ready: alias $ANDROID_KEY_ALIAS"
 
       - name: Build Android APK (Per-ABI Split for minimal file size)
         shell: bash
@@ -174,15 +190,25 @@ jobs:
           done < <(find src-tauri/gen/android/app/build/outputs/apk -type f -name "*release*.apk")
 
           cd release
-          if ls *.apk 1> /dev/null 2>&1; then
-            sha256sum *.apk > SHA256SUMS.txt
-            echo "Successfully generated APK release assets:"
-            ls -lh *.apk
-          else
-            echo "Warning: No per-architecture APKs matched the pattern, searching all APKs:"
-            find ../src-tauri/gen/android/app/build/outputs/apk -type f -name "*.apk" -exec cp {} ./ \;
-            sha256sum *.apk > SHA256SUMS.txt || true
+          if ! ls *.apk 1> /dev/null 2>&1; then
+            echo "::error ::No release APKs were produced. Refusing to publish an empty or unsigned release."
+            exit 1
           fi
+          sha256sum *.apk > SHA256SUMS.txt
+          echo "Successfully generated APK release assets:"
+          ls -lh *.apk
+
+      - name: Verify APKs (signature, key, version, ABI, 16 KB alignment)
+        shell: bash
+        env:
+          EXPECTED_CERT: ${{ vars.ANDROID_CERT_SHA256 || 'f4b17cd06e1658964fc9e7bd3b82c6e2220b07a403eef95401e2984c13342ed0' }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          node scripts/verify-apk.mjs \
+            --expect-cert "$EXPECTED_CERT" \
+            --expect-version "$VERSION" \
+            release/*.apk
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4

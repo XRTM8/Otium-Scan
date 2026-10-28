@@ -1,7 +1,7 @@
 {
   "name": "otium-scan",
   "private": true,
-  "version": "1.0.3",
+  "version": "1.0.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,7 +12,8 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "tauri:android": "tauri android build --apk"
+    "tauri:android": "tauri android build --apk",
+    "verify:apk": "node scripts/verify-apk.mjs"
   },
   "dependencies": {
     "@fontsource-variable/plus-jakarta-sans": "^5.3.0",
