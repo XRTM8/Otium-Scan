@@ -22,7 +22,7 @@ val keystoreProperties = Properties().apply {
 }
 
 android {
-    compileSdk = 35
+    compileSdk = 36
     namespace = "com.otium.scan"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
